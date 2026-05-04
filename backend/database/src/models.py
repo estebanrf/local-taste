@@ -1,5 +1,5 @@
 """
-Database models and query builders
+Database models and query builders for Local Taste
 """
 
 from typing import Dict, List, Optional, Any
@@ -7,314 +7,227 @@ from datetime import datetime, date
 from decimal import Decimal
 from .client import DataAPIClient
 from .schemas import (
-    InstrumentCreate, UserCreate, AccountCreate, 
-    PositionCreate, JobCreate, JobUpdate
+    CityCreate, DishCreate, RestaurantCreate,
+    PassportEntryCreate, PassportEntryUpdate,
+    UserCreate, JobCreate,
 )
 
 
 class BaseModel:
-    """Base class for database models"""
-    
     table_name = None
-    
+
     def __init__(self, db: DataAPIClient):
         self.db = db
         if not self.table_name:
             raise ValueError("table_name must be defined")
-    
+
     def find_by_id(self, id: Any) -> Optional[Dict]:
-        """Find a record by ID"""
         sql = f"SELECT * FROM {self.table_name} WHERE id = :id::uuid"
         return self.db.query_one(sql, [{'name': 'id', 'value': {'stringValue': str(id)}}])
-    
+
     def find_all(self, limit: int = 100, offset: int = 0) -> List[Dict]:
-        """Find all records with pagination"""
         sql = f"SELECT * FROM {self.table_name} LIMIT :limit OFFSET :offset"
-        params = [
+        return self.db.query(sql, [
             {'name': 'limit', 'value': {'longValue': limit}},
-            {'name': 'offset', 'value': {'longValue': offset}}
-        ]
-        return self.db.query(sql, params)
-    
-    def create(self, data: Dict, returning: str = 'id') -> str:
-        """Create a new record"""
-        return self.db.insert(self.table_name, data, returning=returning)
-    
+            {'name': 'offset', 'value': {'longValue': offset}},
+        ])
+
     def update(self, id: Any, data: Dict) -> int:
-        """Update a record by ID"""
         return self.db.update(self.table_name, data, "id = :id::uuid", {'id': str(id)})
-    
+
     def delete(self, id: Any) -> int:
-        """Delete a record by ID"""
         return self.db.delete(self.table_name, "id = :id::uuid", {'id': str(id)})
 
 
 class Users(BaseModel):
-    """Users table operations"""
     table_name = 'users'
-    
+
     def find_by_clerk_id(self, clerk_user_id: str) -> Optional[Dict]:
-        """Find user by Clerk ID"""
-        sql = f"SELECT * FROM {self.table_name} WHERE clerk_user_id = :clerk_id"
-        params = [{'name': 'clerk_id', 'value': {'stringValue': clerk_user_id}}]
-        return self.db.query_one(sql, params)
-    
-    def create_user(self, clerk_user_id: str, display_name: str = None, 
-                   years_until_retirement: int = None,
-                   target_retirement_income: Decimal = None) -> str:
-        """Create a new user"""
-        data = {
+        sql = "SELECT * FROM users WHERE clerk_user_id = :clerk_id"
+        return self.db.query_one(sql, [{'name': 'clerk_id', 'value': {'stringValue': clerk_user_id}}])
+
+    def create_user(self, clerk_user_id: str, display_name: str = None,
+                    home_city: str = None, dietary_notes: str = None) -> str:
+        data = {k: v for k, v in {
             'clerk_user_id': clerk_user_id,
             'display_name': display_name,
-            'years_until_retirement': years_until_retirement,
-            'target_retirement_income': target_retirement_income
-        }
-        # Remove None values
-        data = {k: v for k, v in data.items() if v is not None}
-        return self.db.insert(self.table_name, data, returning='clerk_user_id')
+            'home_city': home_city,
+            'dietary_notes': dietary_notes,
+        }.items() if v is not None}
+        return self.db.insert('users', data, returning='clerk_user_id')
 
 
-class Instruments(BaseModel):
-    """Instruments table operations"""
-    table_name = 'instruments'
+class Cities(BaseModel):
+    table_name = 'cities'
 
-    def find_all(self, limit: int = None, offset: int = 0) -> List[Dict]:
-        """Find all instruments - no limit by default for autocomplete"""
-        sql = f"SELECT * FROM {self.table_name} ORDER BY symbol"
-        return self.db.query(sql, [])
+    def find_by_slug(self, slug: str) -> Optional[Dict]:
+        sql = "SELECT * FROM cities WHERE slug = :slug"
+        return self.db.query_one(sql, [{'name': 'slug', 'value': {'stringValue': slug}}])
 
-    def find_by_symbol(self, symbol: str) -> Optional[Dict]:
-        """Find instrument by symbol"""
-        sql = f"SELECT * FROM {self.table_name} WHERE symbol = :symbol"
-        params = [{'name': 'symbol', 'value': {'stringValue': symbol}}]
-        return self.db.query_one(sql, params)
-    
-    def create_instrument(self, instrument: InstrumentCreate) -> str:
-        """Create a new instrument with validation"""
-        # Validate using Pydantic
-        validated = instrument.model_dump()
-        
-        # Convert allocations to JSON strings for storage
-        data = {
-            'symbol': validated['symbol'],
-            'name': validated['name'],
-            'instrument_type': validated['instrument_type'],
-            'allocation_regions': validated['allocation_regions'],
-            'allocation_sectors': validated['allocation_sectors'],
-            'allocation_asset_class': validated['allocation_asset_class']
-        }
-        
-        return self.db.insert(self.table_name, data, returning='symbol')
-    
-    def find_by_type(self, instrument_type: str) -> List[Dict]:
-        """Find all instruments of a specific type"""
-        sql = f"SELECT * FROM {self.table_name} WHERE instrument_type = :type ORDER BY symbol"
-        params = [{'name': 'type', 'value': {'stringValue': instrument_type}}]
-        return self.db.query(sql, params)
-    
     def search(self, query: str) -> List[Dict]:
-        """Search instruments by symbol or name"""
-        sql = f"""
-            SELECT * FROM {self.table_name} 
-            WHERE LOWER(symbol) LIKE LOWER(:query) 
-               OR LOWER(name) LIKE LOWER(:query)
-            ORDER BY symbol
-            LIMIT 20
+        sql = """
+            SELECT * FROM cities
+            WHERE LOWER(name) LIKE LOWER(:q) OR LOWER(country) LIKE LOWER(:q)
+            ORDER BY name LIMIT 20
         """
-        params = [{'name': 'query', 'value': {'stringValue': f'%{query}%'}}]
-        return self.db.query(sql, params)
+        return self.db.query(sql, [{'name': 'q', 'value': {'stringValue': f'%{query}%'}}])
+
+    def create_city(self, city: CityCreate) -> str:
+        data = city.model_dump(exclude_none=True)
+        return self.db.insert('cities', data, returning='id')
+
+    def upsert_city(self, city: CityCreate) -> str:
+        """Insert or return existing city by slug"""
+        existing = self.find_by_slug(city.slug)
+        if existing:
+            return existing['id']
+        return self.create_city(city)
 
 
-class Accounts(BaseModel):
-    """Accounts table operations"""
-    table_name = 'accounts'
-    
+class Dishes(BaseModel):
+    table_name = 'dishes'
+
+    def find_by_city(self, city_id: str) -> List[Dict]:
+        sql = "SELECT * FROM dishes WHERE city_id = :city_id::uuid ORDER BY rank"
+        return self.db.query(sql, [{'name': 'city_id', 'value': {'stringValue': city_id}}])
+
+    def create_dish(self, dish: DishCreate) -> str:
+        data = dish.model_dump(exclude_none=True)
+        return self.db.insert('dishes', data, returning='id')
+
+    def delete_by_city(self, city_id: str) -> int:
+        return self.db.delete('dishes', "city_id = :city_id::uuid", {'city_id': city_id})
+
+
+class Restaurants(BaseModel):
+    table_name = 'restaurants'
+
+    def find_by_dish(self, dish_id: str) -> List[Dict]:
+        sql = "SELECT * FROM restaurants WHERE dish_id = :dish_id::uuid ORDER BY rank"
+        return self.db.query(sql, [{'name': 'dish_id', 'value': {'stringValue': dish_id}}])
+
+    def create_restaurant(self, restaurant: RestaurantCreate) -> str:
+        data = restaurant.model_dump(exclude_none=True)
+        return self.db.insert('restaurants', data, returning='id')
+
+    def delete_by_dish(self, dish_id: str) -> int:
+        return self.db.delete('restaurants', "dish_id = :dish_id::uuid", {'dish_id': dish_id})
+
+
+class PassportEntries(BaseModel):
+    table_name = 'passport_entries'
+
     def find_by_user(self, clerk_user_id: str) -> List[Dict]:
-        """Find all accounts for a user"""
-        sql = f"""
-            SELECT * FROM {self.table_name} 
-            WHERE clerk_user_id = :user_id 
-            ORDER BY created_at DESC
+        sql = """
+            SELECT pe.*, d.name AS dish_name, d.cuisine_type, d.rank AS dish_rank,
+                   c.name AS city_name, c.country,
+                   r.name AS restaurant_name
+            FROM passport_entries pe
+            JOIN dishes d ON pe.dish_id = d.id
+            JOIN cities c ON d.city_id = c.id
+            LEFT JOIN restaurants r ON pe.restaurant_id = r.id
+            WHERE pe.clerk_user_id = :uid
+            ORDER BY pe.tasted_at DESC, pe.created_at DESC
         """
-        params = [{'name': 'user_id', 'value': {'stringValue': clerk_user_id}}]
-        return self.db.query(sql, params)
-    
-    def create_account(self, clerk_user_id: str, account_name: str,
-                      account_purpose: str = None, cash_balance: Decimal = Decimal('0'),
-                      cash_interest: Decimal = Decimal('0')) -> str:
-        """Create a new account"""
-        data = {
+        return self.db.query(sql, [{'name': 'uid', 'value': {'stringValue': clerk_user_id}}])
+
+    def find_by_user_and_dish(self, clerk_user_id: str, dish_id: str) -> Optional[Dict]:
+        sql = """
+            SELECT * FROM passport_entries
+            WHERE clerk_user_id = :uid AND dish_id = :dish_id::uuid
+        """
+        return self.db.query_one(sql, [
+            {'name': 'uid', 'value': {'stringValue': clerk_user_id}},
+            {'name': 'dish_id', 'value': {'stringValue': dish_id}},
+        ])
+
+    def create_entry(self, clerk_user_id: str, entry: PassportEntryCreate) -> str:
+        data = {k: v for k, v in {
             'clerk_user_id': clerk_user_id,
-            'account_name': account_name,
-            'account_purpose': account_purpose,
-            'cash_balance': cash_balance,
-            'cash_interest': cash_interest
-        }
-        return self.db.insert(self.table_name, data, returning='id')
+            'dish_id': entry.dish_id,
+            'restaurant_id': entry.restaurant_id,
+            'tasted_at': entry.tasted_at.isoformat() if entry.tasted_at else date.today().isoformat(),
+            'rating': entry.rating,
+            'notes': entry.notes,
+        }.items() if v is not None}
+        return self.db.insert('passport_entries', data, returning='id')
 
+    def update_entry(self, entry_id: str, update: PassportEntryUpdate) -> int:
+        data = {k: v for k, v in update.model_dump().items() if v is not None}
+        if 'tasted_at' in data and hasattr(data['tasted_at'], 'isoformat'):
+            data['tasted_at'] = data['tasted_at'].isoformat()
+        return self.db.update('passport_entries', data, "id = :id::uuid", {'id': entry_id})
 
-class Positions(BaseModel):
-    """Positions table operations"""
-    table_name = 'positions'
-    
-    def find_by_account(self, account_id: str) -> List[Dict]:
-        """Find all positions in an account"""
-        sql = f"""
-            SELECT p.*, i.name as instrument_name, i.instrument_type, i.current_price
-            FROM {self.table_name} p
-            JOIN instruments i ON p.symbol = i.symbol
-            WHERE p.account_id = :account_id::uuid
-            ORDER BY p.symbol
-        """
-        params = [{'name': 'account_id', 'value': {'stringValue': account_id}}]
-        return self.db.query(sql, params)
-    
-    def get_portfolio_value(self, account_id: str) -> Dict:
-        """Calculate total portfolio value using current prices from instruments table"""
+    def stats_for_user(self, clerk_user_id: str) -> Dict:
         sql = """
-            SELECT 
-                COUNT(DISTINCT p.symbol) as num_positions,
-                SUM(p.quantity * i.current_price) as total_value,
-                SUM(p.quantity) as total_shares
-            FROM positions p
-            JOIN instruments i ON p.symbol = i.symbol
-            WHERE p.account_id = :account_id::uuid
+            SELECT
+                COUNT(*)                          AS total_dishes,
+                COUNT(DISTINCT d.city_id)         AS cities_visited,
+                COUNT(DISTINCT d.cuisine_type)    AS cuisine_types,
+                ROUND(AVG(pe.rating), 1)          AS avg_rating
+            FROM passport_entries pe
+            JOIN dishes d ON pe.dish_id = d.id
+            WHERE pe.clerk_user_id = :uid
         """
-        params = [
-            {'name': 'account_id', 'value': {'stringValue': account_id}}
-        ]
-        result = self.db.query_one(sql, params)
-        if result:
-            return {
-                'num_positions': result.get('num_positions', 0),
-                'total_value': float(result.get('total_value', 0)) if result.get('total_value') else 0,
-                'total_shares': float(result.get('total_shares', 0)) if result.get('total_shares') else 0
-            }
-        return {'num_positions': 0, 'total_value': 0, 'total_shares': 0}
-    
-    def add_position(self, account_id: str, symbol: str, quantity: Decimal) -> str:
-        """Add or update a position"""
-        # Use UPSERT to handle existing positions
-        sql = """
-            INSERT INTO positions (account_id, symbol, quantity, as_of_date)
-            VALUES (:account_id::uuid, :symbol, :quantity::numeric, :as_of_date::date)
-            ON CONFLICT (account_id, symbol) 
-            DO UPDATE SET 
-                quantity = EXCLUDED.quantity,
-                as_of_date = EXCLUDED.as_of_date,
-                updated_at = NOW()
-            RETURNING id
-        """
-        params = [
-            {'name': 'account_id', 'value': {'stringValue': account_id}},
-            {'name': 'symbol', 'value': {'stringValue': symbol}},
-            {'name': 'quantity', 'value': {'stringValue': str(quantity)}},
-            {'name': 'as_of_date', 'value': {'stringValue': date.today().isoformat()}}
-        ]
-        response = self.db.execute(sql, params)
-        if response.get('records'):
-            return response['records'][0][0].get('stringValue')
-        return None
+        result = self.db.query_one(sql, [{'name': 'uid', 'value': {'stringValue': clerk_user_id}}])
+        return result or {'total_dishes': 0, 'cities_visited': 0, 'cuisine_types': 0, 'avg_rating': None}
 
 
 class Jobs(BaseModel):
-    """Jobs table operations"""
     table_name = 'jobs'
-    
-    def create_job(self, clerk_user_id: str, job_type: str, 
-                  request_payload: Dict = None) -> str:
-        """Create a new job"""
+
+    def create_job(self, clerk_user_id: str, job_type: str, request_payload: Dict = None) -> str:
         data = {
             'clerk_user_id': clerk_user_id,
             'job_type': job_type,
             'status': 'pending',
-            'request_payload': request_payload
+            'request_payload': request_payload,
         }
-        return self.db.insert(self.table_name, data, returning='id')
-    
+        return self.db.insert('jobs', data, returning='id')
+
     def update_status(self, job_id: str, status: str, error_message: str = None) -> int:
-        """Update job status"""
         data = {'status': status}
-        
         if status == 'running':
             data['started_at'] = datetime.utcnow()
         elif status in ['completed', 'failed']:
             data['completed_at'] = datetime.utcnow()
-        
         if error_message:
             data['error_message'] = error_message
-        
-        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
-    
-    def update_report(self, job_id: str, report_payload: Dict) -> int:
-        """Update job with Reporter agent's analysis"""
-        data = {'report_payload': report_payload}
-        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
-    
-    def update_charts(self, job_id: str, charts_payload: Dict) -> int:
-        """Update job with Charter agent's visualization data"""
-        data = {'charts_payload': charts_payload}
-        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
-    
-    def update_retirement(self, job_id: str, retirement_payload: Dict) -> int:
-        """Update job with Retirement agent's projections"""
-        data = {'retirement_payload': retirement_payload}
-        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
-    
+        return self.db.update('jobs', data, "id = :id::uuid", {'id': job_id})
+
+    def update_dishes(self, job_id: str, dishes_payload: Dict) -> int:
+        return self.db.update('jobs', {'dishes_payload': dishes_payload}, "id = :id::uuid", {'id': job_id})
+
+    def update_restaurants(self, job_id: str, restaurants_payload: Dict) -> int:
+        return self.db.update('jobs', {'restaurants_payload': restaurants_payload}, "id = :id::uuid", {'id': job_id})
+
     def update_summary(self, job_id: str, summary_payload: Dict) -> int:
-        """Update job with Planner's final summary"""
-        data = {'summary_payload': summary_payload}
-        return self.db.update(self.table_name, data, "id = :id::uuid", {'id': job_id})
-    
-    def find_by_user(self, clerk_user_id: str, status: str = None, 
-                    limit: int = 20) -> List[Dict]:
-        """Find jobs for a user"""
-        if status:
-            sql = f"""
-                SELECT * FROM {self.table_name}
-                WHERE clerk_user_id = :user_id AND status = :status
-                ORDER BY created_at DESC
-                LIMIT :limit
-            """
-            params = [
-                {'name': 'user_id', 'value': {'stringValue': clerk_user_id}},
-                {'name': 'status', 'value': {'stringValue': status}},
-                {'name': 'limit', 'value': {'longValue': limit}}
-            ]
-        else:
-            sql = f"""
-                SELECT * FROM {self.table_name}
-                WHERE clerk_user_id = :user_id
-                ORDER BY created_at DESC
-                LIMIT :limit
-            """
-            params = [
-                {'name': 'user_id', 'value': {'stringValue': clerk_user_id}},
-                {'name': 'limit', 'value': {'longValue': limit}}
-            ]
-        
-        return self.db.query(sql, params)
+        return self.db.update('jobs', {'summary_payload': summary_payload}, "id = :id::uuid", {'id': job_id})
+
+    def find_by_user(self, clerk_user_id: str, limit: int = 50) -> List[Dict]:
+        sql = """
+            SELECT * FROM jobs WHERE clerk_user_id = :uid
+            ORDER BY created_at DESC LIMIT :limit
+        """
+        return self.db.query(sql, [
+            {'name': 'uid', 'value': {'stringValue': clerk_user_id}},
+            {'name': 'limit', 'value': {'longValue': limit}},
+        ])
 
 
 class Database:
-    """Main database interface providing access to all models"""
-    
     def __init__(self, cluster_arn: str = None, secret_arn: str = None,
                  database: str = None, region: str = None):
-        """Initialize database with all model classes"""
         self.client = DataAPIClient(cluster_arn, secret_arn, database, region)
-        
-        # Initialize all models
         self.users = Users(self.client)
-        self.instruments = Instruments(self.client)
-        self.accounts = Accounts(self.client)
-        self.positions = Positions(self.client)
+        self.cities = Cities(self.client)
+        self.dishes = Dishes(self.client)
+        self.restaurants = Restaurants(self.client)
+        self.passport = PassportEntries(self.client)
         self.jobs = Jobs(self.client)
-    
+
     def execute_raw(self, sql: str, parameters: List[Dict] = None) -> Dict:
-        """Execute raw SQL for complex queries"""
         return self.client.execute(sql, parameters)
-    
+
     def query_raw(self, sql: str, parameters: List[Dict] = None) -> List[Dict]:
-        """Execute raw SELECT query"""
         return self.client.query(sql, parameters)

@@ -1,99 +1,121 @@
--- Alex Financial Planner Database Schema
+-- Local Taste Database Schema
 -- Version: 001
--- Description: Initial schema for multi-user financial planning platform
+-- Description: Food passport platform - city dish discovery and restaurant ranking
 
--- Enable UUID extension for gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Minimal users table (Clerk handles auth)
 CREATE TABLE IF NOT EXISTS users (
     clerk_user_id VARCHAR(255) PRIMARY KEY,
-    display_name VARCHAR(255),
-    years_until_retirement INTEGER,
-    target_retirement_income DECIMAL(12,2),  -- Annual income goal
-    
-    -- Allocation targets for rebalancing (stored as JSON)
-    asset_class_targets JSONB DEFAULT '{"equity": 70, "fixed_income": 30}',
-    region_targets JSONB DEFAULT '{"north_america": 50, "international": 50}',
-    
+    display_name  VARCHAR(255),
+    home_city     VARCHAR(255),   -- optional: user's home city for personalisation
+    dietary_notes TEXT,           -- optional: allergies, preferences, etc.
+
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Reference data for instruments
-CREATE TABLE IF NOT EXISTS instruments (
-    symbol VARCHAR(20) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    instrument_type VARCHAR(50),  -- 'equity', 'etf', 'mutual_fund', 'bond_fund'
-    current_price DECIMAL(12,4),  -- Current price for portfolio calculations
-    
-    -- Allocation percentages (0-100, stored as JSON)
-    allocation_regions JSONB DEFAULT '{}',      -- {"north_america": 60, "europe": 20, "asia": 20}
-    allocation_sectors JSONB DEFAULT '{}',      -- {"technology": 30, "healthcare": 20, ...}
-    allocation_asset_class JSONB DEFAULT '{}',  -- {"equity": 80, "fixed_income": 20}
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+-- Cached city research (shared across all users, re-used to save AI calls)
+CREATE TABLE IF NOT EXISTS cities (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name        VARCHAR(255) NOT NULL,       -- "Tokyo"
+    country     VARCHAR(255) NOT NULL,       -- "Japan"
+    slug        VARCHAR(255) NOT NULL,       -- "tokyo-japan"  (used for lookups)
+    description TEXT,                        -- short intro blurb
+    last_researched_at TIMESTAMP,
+
+    created_at  TIMESTAMP DEFAULT NOW(),
+    updated_at  TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(slug)
 );
 
--- User's investment accounts
-CREATE TABLE IF NOT EXISTS accounts (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Top dishes per city (populated by DishDiscoverer agent)
+CREATE TABLE IF NOT EXISTS dishes (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    city_id     UUID REFERENCES cities(id) ON DELETE CASCADE,
+    name        VARCHAR(255) NOT NULL,       -- "Ramen"
+    description TEXT,                        -- what it is, why it's iconic
+    rank        INTEGER NOT NULL,            -- 1-5
+    cuisine_type VARCHAR(100),               -- "Japanese", "Italian", etc.
+    tags        JSONB DEFAULT '[]',          -- ["noodle","soup","umami"]
+    image_query VARCHAR(255),                -- suggested search term for images
+
+    created_at  TIMESTAMP DEFAULT NOW(),
+    updated_at  TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(city_id, rank)
+);
+
+-- Restaurants per dish (populated by RestaurantRanker agent)
+CREATE TABLE IF NOT EXISTS restaurants (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    dish_id         UUID REFERENCES dishes(id) ON DELETE CASCADE,
+    name            VARCHAR(255) NOT NULL,
+    address         TEXT,
+    google_maps_url TEXT,
+    google_rating   DECIMAL(3,1),            -- e.g. 4.7
+    review_count    INTEGER,
+    price_level     VARCHAR(10),             -- "$", "$$", "$$$", "$$$$"
+    rank            INTEGER NOT NULL,        -- 1-5  (AI-computed composite rank)
+    rank_rationale  TEXT,                    -- why this rank
+    highlights      JSONB DEFAULT '[]',      -- ["authentic","queue worth it"]
+    last_updated_at TIMESTAMP,
+
+    created_at      TIMESTAMP DEFAULT NOW(),
+    updated_at      TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(dish_id, rank)
+);
+
+-- Per-user food passport entries
+CREATE TABLE IF NOT EXISTS passport_entries (
+    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
-    account_name VARCHAR(255) NOT NULL,     -- "401k", "Roth IRA"
-    account_purpose TEXT,                    -- "Long-term retirement savings"
-    cash_balance DECIMAL(12,2) DEFAULT 0,   -- Uninvested cash
-    cash_interest DECIMAL(5,4) DEFAULT 0,   -- Annual interest rate (0.045 = 4.5%)
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    dish_id       UUID REFERENCES dishes(id) ON DELETE CASCADE,
+    restaurant_id UUID REFERENCES restaurants(id) ON DELETE SET NULL,
+    tasted_at     DATE DEFAULT CURRENT_DATE,
+    rating        INTEGER,                   -- user's personal 1-5 rating
+    notes         TEXT,                      -- free-text personal notes
+
+    created_at    TIMESTAMP DEFAULT NOW(),
+    updated_at    TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(clerk_user_id, dish_id)           -- one entry per dish per user
 );
 
--- Current positions in each account
-CREATE TABLE IF NOT EXISTS positions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
-    symbol VARCHAR(20) REFERENCES instruments(symbol),
-    quantity DECIMAL(20,8) NOT NULL,        -- Supports fractional shares
-    as_of_date DATE DEFAULT CURRENT_DATE,
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    
-    -- Ensure no duplicate positions per account
-    UNIQUE(account_id, symbol)
-);
-
--- Jobs tracking for async analysis
+-- Async jobs (city discovery + restaurant ranking)
 CREATE TABLE IF NOT EXISTS jobs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
-    job_type VARCHAR(50) NOT NULL,          -- 'portfolio_analysis', 'rebalance', 'projection'
-    status VARCHAR(20) DEFAULT 'pending',    -- 'pending', 'running', 'completed', 'failed'
-    request_payload JSONB,                   -- Input parameters
-    
-    -- Separate fields for each agent's results (no merging needed)
-    report_payload JSONB,                    -- Reporter agent's markdown analysis
-    charts_payload JSONB,                    -- Charter agent's visualization data
-    retirement_payload JSONB,                -- Retirement agent's projections
-    summary_payload JSONB,                   -- Planner's final summary/metadata
-    
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    clerk_user_id   VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+    job_type        VARCHAR(50) NOT NULL,    -- 'city_discovery' | 'restaurant_ranking'
+    status          VARCHAR(20) DEFAULT 'pending', -- pending/running/completed/failed
+    request_payload JSONB,                   -- {city, country} or {dish_id, dish_name, city}
+
+    -- Separate payload fields per agent (no merging)
+    dishes_payload      JSONB,               -- DishDiscoverer: top-5 dishes JSON
+    restaurants_payload JSONB,               -- RestaurantRanker: ranked restaurants JSON
+    summary_payload     JSONB,               -- Planner metadata
+
     error_message TEXT,
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    started_at TIMESTAMP,
+
+    created_at   TIMESTAMP DEFAULT NOW(),
+    started_at   TIMESTAMP,
     completed_at TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT NOW()
+    updated_at   TIMESTAMP DEFAULT NOW()
 );
 
--- Create indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(clerk_user_id);
-CREATE INDEX IF NOT EXISTS idx_positions_account ON positions(account_id);
-CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol);
-CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(clerk_user_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_cities_slug          ON cities(slug);
+CREATE INDEX IF NOT EXISTS idx_dishes_city          ON dishes(city_id);
+CREATE INDEX IF NOT EXISTS idx_dishes_rank          ON dishes(city_id, rank);
+CREATE INDEX IF NOT EXISTS idx_restaurants_dish     ON restaurants(dish_id);
+CREATE INDEX IF NOT EXISTS idx_passport_user        ON passport_entries(clerk_user_id);
+CREATE INDEX IF NOT EXISTS idx_passport_dish        ON passport_entries(dish_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_user            ON jobs(clerk_user_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_status          ON jobs(status);
 
--- Create update timestamp trigger function
+-- Auto-update updated_at trigger
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -102,18 +124,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Add update triggers to tables with updated_at
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_instruments_updated_at BEFORE UPDATE ON instruments
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON accounts
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_positions_updated_at BEFORE UPDATE ON positions
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_users_updated_at        BEFORE UPDATE ON users        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_cities_updated_at       BEFORE UPDATE ON cities       FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_dishes_updated_at       BEFORE UPDATE ON dishes       FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_restaurants_updated_at  BEFORE UPDATE ON restaurants  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_passport_updated_at     BEFORE UPDATE ON passport_entries FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_jobs_updated_at         BEFORE UPDATE ON jobs         FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

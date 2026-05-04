@@ -6,157 +6,137 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Alex AI Financial Advisor - Intelligent Portfolio Management</title>
+        <title>Local Taste - Discover Must-Try Food in Every City</title>
       </Head>
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-gray-50">
-      {/* Navigation */}
-      <nav className="px-8 py-6 bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="text-2xl font-bold text-dark">
-            Alex <span className="text-primary">AI Financial Advisor</span>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-violet-50">
+        {/* Nav */}
+        <nav className="px-8 py-6 bg-white shadow-sm">
+          <div className="max-w-7xl mx-auto flex justify-between items-center">
+            <div className="text-2xl font-bold text-dark">
+              🍜 <span className="text-primary">Local Taste</span>
+            </div>
+            <div className="flex gap-4">
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <button className="px-6 py-2 text-primary border border-primary rounded-lg hover:bg-primary hover:text-white transition-colors">
+                    Sign In
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors">
+                    Get Started
+                  </button>
+                </SignUpButton>
+              </SignedOut>
+              <SignedIn>
+                <div className="flex items-center gap-4">
+                  <Link href="/dashboard">
+                    <button className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors">
+                      Open App
+                    </button>
+                  </Link>
+                  <UserButton afterSignOutUrl="/" />
+                </div>
+              </SignedIn>
+            </div>
           </div>
-          <div className="flex gap-4">
-            <SignedOut>
-              <SignInButton mode="modal">
-                <button className="px-6 py-2 text-primary border border-primary rounded-lg hover:bg-primary hover:text-white transition-colors">
-                  Sign In
-                </button>
-              </SignInButton>
-              <SignUpButton mode="modal">
-                <button className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-blue-600 transition-colors">
-                  Get Started
-                </button>
-              </SignUpButton>
-            </SignedOut>
-            <SignedIn>
-              <div className="flex items-center gap-4">
-                <Link href="/dashboard">
-                  <button className="px-6 py-2 bg-ai-accent text-white rounded-lg hover:bg-purple-700 transition-colors">
-                    Go to Dashboard
+        </nav>
+
+        {/* Hero */}
+        <section className="px-8 py-24 text-center">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-7xl mb-6">🌍</div>
+            <h1 className="text-5xl font-bold text-dark mb-6">
+              Eat like a local,<br />wherever you are
+            </h1>
+            <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
+              Tell us the city. Our AI finds the 5 dishes you <em>must</em> try — then ranks the best places to eat them, using Google Maps ratings, review counts, and local knowledge.
+            </p>
+            <div className="flex gap-4 justify-center">
+              <SignedOut>
+                <SignUpButton mode="modal">
+                  <button className="px-8 py-4 bg-primary text-white text-lg rounded-lg hover:bg-purple-700 transition-colors shadow-lg">
+                    Start Exploring
+                  </button>
+                </SignUpButton>
+              </SignedOut>
+              <SignedIn>
+                <Link href="/explore">
+                  <button className="px-8 py-4 bg-primary text-white text-lg rounded-lg hover:bg-purple-700 transition-colors shadow-lg">
+                    Start Exploring
                   </button>
                 </Link>
-                <UserButton afterSignOutUrl="/" />
+              </SignedIn>
+            </div>
+          </div>
+        </section>
+
+        {/* How it works */}
+        <section className="px-8 py-20 bg-white">
+          <div className="max-w-7xl mx-auto">
+            <h2 className="text-3xl font-bold text-center text-dark mb-12">How it works</h2>
+            <div className="grid md:grid-cols-3 gap-8">
+              <div className="text-center p-8">
+                <div className="text-5xl mb-4">🏙️</div>
+                <h3 className="text-xl font-semibold text-dark mb-2">1. Enter a city</h3>
+                <p className="text-gray-600">Type any city in the world. Our AI researches its food scene in real time.</p>
               </div>
-            </SignedIn>
-          </div>
-        </div>
-      </nav>
-
-      {/* Hero Section */}
-      <section className="px-8 py-20">
-        <div className="max-w-7xl mx-auto text-center">
-          <h1 className="text-5xl font-bold text-dark mb-6">
-            Your AI-Powered Financial Future
-          </h1>
-          <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-            Experience the power of autonomous AI agents working together to analyze your portfolio, 
-            plan your retirement, and optimize your investments.
-          </p>
-          <div className="flex gap-6 justify-center">
-            <SignedOut>
-              <SignUpButton mode="modal">
-                <button className="px-8 py-4 bg-ai-accent text-white text-lg rounded-lg hover:bg-purple-700 transition-colors shadow-lg">
-                  Start Your Analysis
-                </button>
-              </SignUpButton>
-            </SignedOut>
-            <SignedIn>
-              <Link href="/dashboard">
-                <button className="px-8 py-4 bg-ai-accent text-white text-lg rounded-lg hover:bg-purple-700 transition-colors shadow-lg">
-                  Open Dashboard
-                </button>
-              </Link>
-            </SignedIn>
-            <button className="px-8 py-4 border-2 border-primary text-primary text-lg rounded-lg hover:bg-primary hover:text-white transition-colors">
-              Watch Demo
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="px-8 py-20 bg-white">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-dark mb-12">
-            Meet Your AI Advisory Team
-          </h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <div className="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
-              <div className="text-4xl mb-4">🎯</div>
-              <h3 className="text-xl font-semibold text-ai-accent mb-2">Financial Planner</h3>
-              <p className="text-gray-600">Coordinates your complete financial analysis with intelligent orchestration</p>
-            </div>
-            <div className="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
-              <div className="text-4xl mb-4">📊</div>
-              <h3 className="text-xl font-semibold text-primary mb-2">Portfolio Analyst</h3>
-              <p className="text-gray-600">Deep analysis of holdings, performance metrics, and risk assessment</p>
-            </div>
-            <div className="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
-              <div className="text-4xl mb-4">📈</div>
-              <h3 className="text-xl font-semibold text-success mb-2">Chart Specialist</h3>
-              <p className="text-gray-600">Visualizes your portfolio composition with interactive charts</p>
-            </div>
-            <div className="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
-              <div className="text-4xl mb-4">🎯</div>
-              <h3 className="text-xl font-semibold text-accent mb-2">Retirement Planner</h3>
-              <p className="text-gray-600">Projects your retirement readiness with Monte Carlo simulations</p>
+              <div className="text-center p-8">
+                <div className="text-5xl mb-4">🍽️</div>
+                <h3 className="text-xl font-semibold text-dark mb-2">2. Get top-5 dishes</h3>
+                <p className="text-gray-600">Receive the 5 most iconic, must-try specialities — ranked with context on why they matter.</p>
+              </div>
+              <div className="text-center p-8">
+                <div className="text-5xl mb-4">📍</div>
+                <h3 className="text-xl font-semibold text-dark mb-2">3. Find the best spot</h3>
+                <p className="text-gray-600">Click any dish to get 5 restaurants, AI-ranked by Google rating, review count, and local reputation.</p>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Benefits Section */}
-      <section className="px-8 py-20 bg-gradient-to-r from-primary/10 to-ai-accent/10">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-dark mb-12">
-            Enterprise-Grade AI Advisory
-          </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-white p-8 rounded-xl shadow-md">
-              <div className="text-accent text-2xl mb-4">⚡</div>
-              <h3 className="text-xl font-semibold mb-3">Real-Time Analysis</h3>
-              <p className="text-gray-600">Watch AI agents collaborate in parallel to analyze your complete financial picture</p>
-            </div>
-            <div className="bg-white p-8 rounded-xl shadow-md">
-              <div className="text-accent text-2xl mb-4">🔒</div>
-              <h3 className="text-xl font-semibold mb-3">Bank-Level Security</h3>
-              <p className="text-gray-600">Your data is protected with enterprise security and row-level access controls</p>
-            </div>
-            <div className="bg-white p-8 rounded-xl shadow-md">
-              <div className="text-accent text-2xl mb-4">📊</div>
-              <h3 className="text-xl font-semibold mb-3">Comprehensive Reports</h3>
-              <p className="text-gray-600">Detailed markdown reports with interactive charts and retirement projections</p>
+        {/* Passport feature */}
+        <section className="px-8 py-20 bg-gradient-to-r from-purple-50 to-violet-50">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="text-5xl mb-4">🛂</div>
+            <h2 className="text-3xl font-bold text-dark mb-4">Your Food Passport</h2>
+            <p className="text-xl text-gray-600 mb-8">
+              Log every dish you try, where you ate it, and your personal rating. Build a lifetime record of your culinary adventures.
+            </p>
+            <div className="grid grid-cols-3 gap-6 max-w-lg mx-auto">
+              <div className="bg-white rounded-xl p-4 shadow-sm">
+                <p className="text-3xl font-bold text-primary">∞</p>
+                <p className="text-sm text-gray-500">Cities</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 shadow-sm">
+                <p className="text-3xl font-bold text-primary">5★</p>
+                <p className="text-sm text-gray-500">Your ratings</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 shadow-sm">
+                <p className="text-3xl font-bold text-primary">📝</p>
+                <p className="text-sm text-gray-500">Notes & memories</p>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* CTA Section */}
-      <section className="px-8 py-20 bg-dark text-white">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl font-bold mb-6">
-            Ready to Transform Your Financial Future?
-          </h2>
-          <p className="text-xl mb-8 opacity-90">
-            Join thousands of investors using AI to optimize their portfolios
-          </p>
-          <SignUpButton mode="modal">
-            <button className="px-8 py-4 bg-accent text-dark font-semibold text-lg rounded-lg hover:bg-yellow-500 transition-colors shadow-lg">
-              Get Started Free
-            </button>
-          </SignUpButton>
-        </div>
-      </section>
+        {/* CTA */}
+        <section className="px-8 py-20 bg-dark text-white text-center">
+          <div className="max-w-2xl mx-auto">
+            <h2 className="text-3xl font-bold mb-4">Ready to eat like a local?</h2>
+            <p className="text-lg mb-8 opacity-80">Join food lovers discovering the world one dish at a time.</p>
+            <SignUpButton mode="modal">
+              <button className="px-8 py-4 bg-accent text-dark font-semibold text-lg rounded-lg hover:bg-violet-300 transition-colors shadow-lg">
+                Create your Food Passport
+              </button>
+            </SignUpButton>
+          </div>
+        </section>
 
-      {/* Footer */}
-      <footer className="px-8 py-6 bg-gray-900 text-gray-400 text-center text-sm">
-        <p>© 2025 Alex AI Financial Advisor. All rights reserved.</p>
-        <p className="mt-2">
-          This AI-generated advice has not been vetted by a qualified financial advisor and should not be used for trading decisions. 
-          For informational purposes only.
-        </p>
-      </footer>
-    </div>
+        <footer className="px-8 py-6 bg-gray-900 text-gray-400 text-center text-sm">
+          <p>© 2025 Local Taste. AI-powered food discovery. Always verify opening hours before visiting.</p>
+        </footer>
+      </div>
     </>
   );
 }

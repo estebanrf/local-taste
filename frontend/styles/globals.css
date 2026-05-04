@@ -1,77 +1,44 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #FAF7FD;    /* very light lavender tint */
+  --foreground: #1E1030;
 }
 
 @theme inline {
-  /* Custom colors for Alex Financial Advisor */
-  --color-primary: #209DD7;        /* Primary blue */
-  --color-ai-accent: #753991;      /* Purple for AI/agent features */
-  --color-accent: #FFB707;         /* Yellow/gold accent */
-  --color-dark: #062147;           /* Dark navy */
-  --color-success: #10b981;        /* Green for positive */
-  --color-error: #ef4444;          /* Red for errors */
-  
-  /* Preserve defaults */
+  /* Local Taste colour palette — pastel purple */
+  --color-primary: #9B6EC8;        /* Mid pastel-purple - main CTA */
+  --color-ai-accent: #7C4DA8;      /* Deeper purple - AI/agent features */
+  --color-accent: #C9A8E8;         /* Soft lavender - highlights */
+  --color-dark: #2D1B45;           /* Deep aubergine */
+  --color-success: #6DBF9E;        /* Soft mint green */
+  --color-error: #E07A7A;          /* Muted rose red */
+  --color-muted: #9E8AB0;          /* Dusty mauve */
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-/* Light mode only - no dark mode for enterprise look */
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: system-ui, -apple-system, sans-serif;
 }
 
-/* Stronger pulsing animation for agent activity */
 @keyframes strong-pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.4;
-    transform: scale(0.95);
-  }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.95); }
 }
-
 .animate-strong-pulse {
   animation: strong-pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Even stronger glow pulse for active agents */
 @keyframes glow-pulse {
-  0%, 100% {
-    opacity: 1;
-    box-shadow: 0 0 20px rgba(117, 57, 145, 0.5), 0 0 40px rgba(117, 57, 145, 0.3);
-  }
-  50% {
-    opacity: 0.7;
-    box-shadow: 0 0 30px rgba(117, 57, 145, 0.8), 0 0 60px rgba(117, 57, 145, 0.5);
-  }
+  0%, 100% { box-shadow: 0 0 20px rgba(155, 110, 200, 0.5), 0 0 40px rgba(155, 110, 200, 0.3); }
+  50%       { box-shadow: 0 0 30px rgba(155, 110, 200, 0.8), 0 0 60px rgba(155, 110, 200, 0.5); }
 }
-
 .animate-glow-pulse {
   animation: glow-pulse 1.5s ease-in-out infinite;
-}
-
-/* Toast slide-in animation */
-@keyframes slide-in {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.animate-slide-in {
-  animation: slide-in 0.3s ease-out;
 }

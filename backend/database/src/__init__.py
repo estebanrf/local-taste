@@ -1,51 +1,51 @@
 """
-Database package for Alex Financial Planner
-Provides database models, schemas, and Data API client
+Database package for Local Taste - food passport platform
 """
 
 from .client import DataAPIClient
 from .models import Database
 from .schemas import (
-    # Types
-    RegionType,
-    AssetClassType,
-    SectorType,
-    InstrumentType,
     JobType,
     JobStatus,
-    AccountType,
-    
-    # Create schemas (for inputs)
-    InstrumentCreate,
+    PriceLevel,
+    CityCreate,
+    DishCreate,
+    DishResponse,
+    RestaurantCreate,
+    RestaurantResponse,
+    PassportEntryCreate,
+    PassportEntryUpdate,
+    PassportEntryResponse,
     UserCreate,
-    AccountCreate,
-    PositionCreate,
+    UserUpdate,
     JobCreate,
     JobUpdate,
-    
-    # Response schemas (for outputs)
-    InstrumentResponse,
-    PortfolioAnalysis,
-    RebalanceRecommendation,
+    DishItem,
+    DishDiscoveryResult,
+    RestaurantItem,
+    RestaurantRankingResult,
 )
 
 __all__ = [
     'Database',
     'DataAPIClient',
-    'InstrumentCreate',
-    'UserCreate',
-    'AccountCreate',
-    'PositionCreate',
-    'JobCreate',
-    'JobUpdate',
-    'InstrumentResponse',
-    'PortfolioAnalysis',
-    'RebalanceRecommendation',
-    'RegionType',
-    'AssetClassType',
-    'SectorType',
-    'InstrumentType',
     'JobType',
     'JobStatus',
-    'AccountType',
+    'PriceLevel',
+    'CityCreate',
+    'DishCreate',
+    'DishResponse',
+    'RestaurantCreate',
+    'RestaurantResponse',
+    'PassportEntryCreate',
+    'PassportEntryUpdate',
+    'PassportEntryResponse',
+    'UserCreate',
+    'UserUpdate',
+    'JobCreate',
+    'JobUpdate',
+    'DishItem',
+    'DishDiscoveryResult',
+    'RestaurantItem',
+    'RestaurantRankingResult',
 ]

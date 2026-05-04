@@ -1,8 +1,86 @@
 """
-Chart Maker Agent - creates visualization data for portfolio analysis.
+Restaurant Ranker Agent - finds and ranks top-5 restaurants for a dish in a city.
 """
 
 import os
+import logging
+from typing import Any, Optional
+from dataclasses import dataclass
+
+from agents import function_tool, RunContextWrapper
+from agents.extensions.models.litellm_model import LitellmModel
+
+logger = logging.getLogger()
+
+
+@dataclass
+class RestaurantRankerContext:
+    job_id: str
+    dish_id: str
+    dish_name: str
+    city: str
+    country: str
+    db: Optional[Any] = None
+
+
+@function_tool
+async def search_web(wrapper: RunContextWrapper[RestaurantRankerContext], query: str) -> str:
+    """
+    Search the web for restaurant information.
+
+    Args:
+        query: The search query, e.g. "best ramen Tokyo Google Maps"
+    Returns:
+        Summarised search results as text
+    """
+    import boto3
+
+    try:
+        bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
+        model_id = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0")
+        client = boto3.client("bedrock-runtime", region_name=bedrock_region)
+
+        response = client.converse(
+            modelId=model_id,
+            messages=[{
+                "role": "user",
+                "content": [{"text": f"Search the web and tell me: {query}\n\nProvide specific restaurant names, ratings, addresses, and Google Maps info where available. Be factual and specific."}],
+            }],
+        )
+        text = response["output"]["message"]["content"][0]["text"]
+        logger.info(f"Web search for '{query}' returned {len(text)} chars")
+        return text
+
+    except Exception as e:
+        logger.warning(f"Web search failed: {e}")
+        return f"Search unavailable. Use training knowledge to answer: {query}"
+
+
+def create_agent(job_id: str, dish_id: str, dish_name: str, city: str, country: str, db):
+    model_id = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0")
+    bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
+    os.environ["AWS_REGION_NAME"] = bedrock_region
+
+    model = LitellmModel(model=f"bedrock/{model_id}")
+    context = RestaurantRankerContext(
+        job_id=job_id, dish_id=dish_id, dish_name=dish_name,
+        city=city, country=country, db=db,
+    )
+
+    task = f"""Find and rank the top 5 restaurants for {dish_name} in {city}, {country}.
+
+Search for:
+1. "best {dish_name} restaurant {city} {country}"
+2. "where to eat {dish_name} {city} Google Maps reviews"
+3. "{dish_name} {city} local favourite authentic"
+
+Then compile your final JSON with exactly 5 restaurants ranked 1-5."""
+
+    return model, [search_web], task, context
+
+
+# Retain old name for planner compatibility - unused
+_UNUSED = None
 import logging
 from typing import Dict, Any
 
