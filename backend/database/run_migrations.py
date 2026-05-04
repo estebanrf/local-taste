@@ -65,17 +65,43 @@ print("\n🚀 Running 001_schema.sql migrations...")
 with open("migrations/001_schema.sql") as f:
     raw = f.read()
 
-# Split on semicolons, skip blank / comment-only chunks
-statements = []
-for chunk in raw.split(";"):
-    stripped = chunk.strip()
-    # Remove comment-only lines to check if there's real SQL
+
+def split_sql(sql: str):
+    """Split SQL on semicolons, but not inside $$-quoted blocks."""
+    statements = []
+    current = []
+    in_dollar_quote = False
+    i = 0
+    while i < len(sql):
+        # Detect $$ toggle
+        if sql[i:i+2] == "$$":
+            in_dollar_quote = not in_dollar_quote
+            current.append("$$")
+            i += 2
+            continue
+        if sql[i] == ";" and not in_dollar_quote:
+            chunk = "".join(current).strip()
+            no_comments = "\n".join(
+                l for l in chunk.splitlines() if not l.strip().startswith("--")
+            ).strip()
+            if no_comments:
+                statements.append(chunk)
+            current = []
+            i += 1
+            continue
+        current.append(sql[i])
+        i += 1
+    # Trailing chunk without semicolon
+    chunk = "".join(current).strip()
     no_comments = "\n".join(
-        line for line in stripped.splitlines()
-        if not line.strip().startswith("--")
+        l for l in chunk.splitlines() if not l.strip().startswith("--")
     ).strip()
     if no_comments:
-        statements.append(stripped)
+        statements.append(chunk)
+    return statements
+
+
+statements = split_sql(raw)
 
 success = errors = 0
 for stmt in statements:
