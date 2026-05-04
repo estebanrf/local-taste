@@ -101,20 +101,34 @@ def package_lambda():
 
 
 def deploy_lambda(zip_path):
-    """Deploy the Lambda function to AWS."""
+    """Deploy the Lambda function to AWS via S3 (required for packages >50MB)."""
     import boto3
 
-    lambda_client = boto3.client("lambda")
-    function_name = "alex-reporter"
+    session = boto3.session.Session()
+    lambda_client = session.client("lambda")
+    s3_client = session.client("s3")
+    sts_client = session.client("sts")
 
-    print(f"Deploying to Lambda function: {function_name}")
+    account_id = sts_client.get_caller_identity()["Account"]
+    function_name = "lt-discoverer"
+    s3_bucket = f"localtaste-lambda-packages-{account_id}"
+    s3_key = "reporter/reporter_lambda.zip"
 
+    print(f"Uploading package to s3://{s3_bucket}/{s3_key} ...")
     try:
-        # Try to update existing function
-        with open(zip_path, "rb") as f:
-            response = lambda_client.update_function_code(
-                FunctionName=function_name, ZipFile=f.read()
-            )
+        s3_client.upload_file(str(zip_path), s3_bucket, s3_key)
+        print("Upload complete.")
+    except Exception as e:
+        print(f"Error uploading to S3: {e}")
+        sys.exit(1)
+
+    print(f"Updating Lambda function: {function_name}")
+    try:
+        response = lambda_client.update_function_code(
+            FunctionName=function_name,
+            S3Bucket=s3_bucket,
+            S3Key=s3_key,
+        )
         print(f"Successfully updated Lambda function: {function_name}")
         print(f"Function ARN: {response['FunctionArn']}")
     except lambda_client.exceptions.ResourceNotFoundException:
