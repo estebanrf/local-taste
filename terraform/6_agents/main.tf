@@ -47,7 +47,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
       {
         Effect   = "Allow"
         Action   = ["lambda:InvokeFunction"]
-        Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:localtaste-*"
+        Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:lt-*"
       },
       {
         Effect   = "Allow"
@@ -81,7 +81,7 @@ resource "aws_s3_bucket" "lambda_packages" {
 }
 
 locals {
-  agents = ["planner", "reporter", "charter"]
+  agents = ["reporter", "charter"]
 }
 
 resource "aws_s3_object" "lambda_packages" {
@@ -112,34 +112,10 @@ locals {
   }
 }
 
-# ── Planner (Orchestrator) ─────────────────────────────────────────────────────
-
-resource "aws_lambda_function" "planner" {
-  function_name    = "localtaste-planner"
-  role             = aws_iam_role.lambda_role.arn
-  s3_bucket        = aws_s3_bucket.lambda_packages.id
-  s3_key           = aws_s3_object.lambda_packages["planner"].key
-  source_code_hash = fileexists("${path.module}/../../backend/planner/planner_lambda.zip") ? filebase64sha256("${path.module}/../../backend/planner/planner_lambda.zip") : null
-  handler          = "lambda_handler.lambda_handler"
-  runtime          = "python3.12"
-  timeout          = 900
-  memory_size      = 2048
-
-  environment {
-    variables = merge(local.common_env, {
-      DISH_DISCOVERER_FUNCTION   = "localtaste-dish-discoverer"
-      RESTAURANT_RANKER_FUNCTION = "localtaste-restaurant-ranker"
-    })
-  }
-
-  tags       = { Project = "localtaste", Part = "6", Agent = "planner" }
-  depends_on = [aws_s3_object.lambda_packages["planner"]]
-}
-
 # ── Dish Discoverer (reporter dir) ────────────────────────────────────────────
 
 resource "aws_lambda_function" "dish_discoverer" {
-  function_name    = "localtaste-dish-discoverer"
+  function_name    = "lt-discoverer"
   role             = aws_iam_role.lambda_role.arn
   s3_bucket        = aws_s3_bucket.lambda_packages.id
   s3_key           = aws_s3_object.lambda_packages["reporter"].key
@@ -158,7 +134,7 @@ resource "aws_lambda_function" "dish_discoverer" {
 # ── Restaurant Ranker (charter dir) ───────────────────────────────────────────
 
 resource "aws_lambda_function" "restaurant_ranker" {
-  function_name    = "localtaste-restaurant-ranker"
+  function_name    = "lt-ranker"
   role             = aws_iam_role.lambda_role.arn
   s3_bucket        = aws_s3_bucket.lambda_packages.id
   s3_key           = aws_s3_object.lambda_packages["charter"].key
@@ -177,8 +153,8 @@ resource "aws_lambda_function" "restaurant_ranker" {
 # ── CloudWatch Log Groups ─────────────────────────────────────────────────────
 
 resource "aws_cloudwatch_log_group" "agent_logs" {
-  for_each          = toset(["planner", "dish-discoverer", "restaurant-ranker"])
-  name              = "/aws/lambda/localtaste-${each.key}"
+  for_each          = toset(["lt-discoverer", "lt-ranker"])
+  name              = "/aws/lambda/${each.key}"
   retention_in_days = 7
   tags              = { Project = "localtaste", Part = "6" }
 }

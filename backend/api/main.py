@@ -72,7 +72,8 @@ async def general_exception_handler(request: Request, exc: Exception):
 db = Database()
 _aws_region = os.getenv('DEFAULT_AWS_REGION', 'us-east-1')
 lambda_client = boto3.client('lambda', region_name=_aws_region)
-PLANNER_FUNCTION = os.getenv('PLANNER_FUNCTION', 'localtaste-planner')
+DISH_DISCOVERER_FUNCTION   = os.getenv('DISH_DISCOVERER_FUNCTION',   'lt-discoverer')
+RESTAURANT_RANKER_FUNCTION = os.getenv('RESTAURANT_RANKER_FUNCTION', 'lt-ranker')
 
 clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"))
 clerk_guard = ClerkHTTPBearer(clerk_config)
@@ -195,19 +196,17 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
         logger.info(f"[discover] job created: {job_id}")
 
         lambda_client.invoke(
-            FunctionName=PLANNER_FUNCTION,
+            FunctionName=DISH_DISCOVERER_FUNCTION,
             InvocationType="Event",
             Payload=json.dumps({
                 "job_id": str(job_id),
-                "clerk_user_id": clerk_user_id,
-                "job_type": "city_discovery",
                 "city": request.city,
                 "country": request.country,
                 "slug": slug,
                 "city_id": city['id'] if city else None,
             }),
         )
-        logger.info(f"[discover] invoked planner async: {job_id}")
+        logger.info(f"[discover] invoked dish-discoverer async: {job_id}")
 
         return DiscoverResponse(
             job_id=str(job_id),
@@ -277,16 +276,14 @@ async def rank_restaurants(request: RankRestaurantsRequest, clerk_user_id: str =
         )
 
         lambda_client.invoke(
-            FunctionName=PLANNER_FUNCTION,
+            FunctionName=RESTAURANT_RANKER_FUNCTION,
             InvocationType="Event",
             Payload=json.dumps({
                 "job_id": str(job_id),
-                "clerk_user_id": clerk_user_id,
-                "job_type": "restaurant_ranking",
                 **request.model_dump(),
             }),
         )
-        logger.info(f"Invoked planner async for restaurant_ranking: {job_id}")
+        logger.info(f"Invoked restaurant-ranker async: {job_id}")
 
         return RankRestaurantsResponse(job_id=str(job_id), message="Restaurant ranking started.")
     except HTTPException:

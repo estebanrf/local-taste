@@ -157,7 +157,7 @@ resource "aws_iam_role_policy" "api_lambda_invoke" {
       {
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
-        Resource = "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:localtaste-*"
+        Resource = "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:lt-*"
       }
     ]
   })
@@ -184,8 +184,9 @@ resource "aws_lambda_function" "api" {
       AURORA_DATABASE    = data.terraform_remote_state.database.outputs.database_name
       DEFAULT_AWS_REGION = var.aws_region
 
-      # Planner Lambda (invoked directly — no SQS)
-      PLANNER_FUNCTION = data.terraform_remote_state.agents.outputs.planner_function_name
+      # Agent Lambdas invoked directly (async)
+      DISH_DISCOVERER_FUNCTION   = data.terraform_remote_state.agents.outputs.dish_discoverer_function_name
+      RESTAURANT_RANKER_FUNCTION = data.terraform_remote_state.agents.outputs.restaurant_ranker_function_name
 
       # Clerk configuration for JWT validation
       CLERK_JWKS_URL = var.clerk_jwks_url
