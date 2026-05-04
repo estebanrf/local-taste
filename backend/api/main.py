@@ -175,18 +175,23 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
     If the city is already cached (slug exists), returns cached data immediately.
     """
     try:
+        logger.info(f"[discover] user={clerk_user_id} city={request.city} country={request.country}")
+
         user = db.users.find_by_clerk_id(clerk_user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
+        logger.info(f"[discover] user found ok")
 
         slug = f"{request.city.lower().replace(' ', '-')}-{request.country.lower().replace(' ', '-')}"
         city = db.cities.find_by_slug(slug)
+        logger.info(f"[discover] slug={slug} cached_city={'yes' if city else 'no'}")
 
         job_id = db.jobs.create_job(
             clerk_user_id=clerk_user_id,
             job_type="city_discovery",
             request_payload={"city": request.city, "country": request.country, "slug": slug, "city_id": city['id'] if city else None},
         )
+        logger.info(f"[discover] job created: {job_id}")
 
         if SQS_QUEUE_URL:
             sqs_client.send_message(
@@ -201,9 +206,9 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
                     "city_id": city['id'] if city else None,
                 }),
             )
-            logger.info(f"Sent city_discovery job to SQS: {job_id}")
+            logger.info(f"[discover] sent to SQS ok: {job_id}")
         else:
-            logger.warning("SQS_QUEUE_URL not set - job created but not queued")
+            logger.warning("[discover] SQS_QUEUE_URL not set — job created but not queued")
 
         return DiscoverResponse(
             job_id=str(job_id),
@@ -213,7 +218,7 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in discover_city: {e}")
+        logger.error(f"[discover] FAILED at step above: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
