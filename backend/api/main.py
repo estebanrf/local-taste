@@ -70,8 +70,9 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 db = Database()
-sqs_client = boto3.client('sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1'))
-SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL', '')
+_aws_region = os.getenv('DEFAULT_AWS_REGION', 'us-east-1')
+lambda_client = boto3.client('lambda', region_name=_aws_region)
+PLANNER_FUNCTION = os.getenv('PLANNER_FUNCTION', 'localtaste-planner')
 
 clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"))
 clerk_guard = ClerkHTTPBearer(clerk_config)
@@ -193,22 +194,20 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
         )
         logger.info(f"[discover] job created: {job_id}")
 
-        if SQS_QUEUE_URL:
-            sqs_client.send_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps({
-                    "job_id": str(job_id),
-                    "clerk_user_id": clerk_user_id,
-                    "job_type": "city_discovery",
-                    "city": request.city,
-                    "country": request.country,
-                    "slug": slug,
-                    "city_id": city['id'] if city else None,
-                }),
-            )
-            logger.info(f"[discover] sent to SQS ok: {job_id}")
-        else:
-            logger.warning("[discover] SQS_QUEUE_URL not set — job created but not queued")
+        lambda_client.invoke(
+            FunctionName=PLANNER_FUNCTION,
+            InvocationType="Event",
+            Payload=json.dumps({
+                "job_id": str(job_id),
+                "clerk_user_id": clerk_user_id,
+                "job_type": "city_discovery",
+                "city": request.city,
+                "country": request.country,
+                "slug": slug,
+                "city_id": city['id'] if city else None,
+            }),
+        )
+        logger.info(f"[discover] invoked planner async: {job_id}")
 
         return DiscoverResponse(
             job_id=str(job_id),
@@ -277,18 +276,17 @@ async def rank_restaurants(request: RankRestaurantsRequest, clerk_user_id: str =
             request_payload=request.model_dump(),
         )
 
-        if SQS_QUEUE_URL:
-            sqs_client.send_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps({
-                    "job_id": str(job_id),
-                    "clerk_user_id": clerk_user_id,
-                    "job_type": "restaurant_ranking",
-                    **request.model_dump(),
-                }),
-            )
-        else:
-            logger.warning("SQS_QUEUE_URL not set - restaurant job not queued")
+        lambda_client.invoke(
+            FunctionName=PLANNER_FUNCTION,
+            InvocationType="Event",
+            Payload=json.dumps({
+                "job_id": str(job_id),
+                "clerk_user_id": clerk_user_id,
+                "job_type": "restaurant_ranking",
+                **request.model_dump(),
+            }),
+        )
+        logger.info(f"Invoked planner async for restaurant_ranking: {job_id}")
 
         return RankRestaurantsResponse(job_id=str(job_id), message="Restaurant ranking started.")
     except HTTPException:

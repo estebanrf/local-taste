@@ -146,27 +146,7 @@ resource "aws_iam_role_policy" "api_lambda_aurora" {
   })
 }
 
-# Policy for SQS access
-resource "aws_iam_role_policy" "api_lambda_sqs" {
-  name = "${local.name_prefix}-api-lambda-sqs"
-  role = aws_iam_role.api_lambda_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage",
-          "sqs:GetQueueAttributes"
-        ]
-        Resource = data.terraform_remote_state.agents.outputs.sqs_queue_arn
-      }
-    ]
-  })
-}
-
-# Policy for Lambda invoke (for testing agents directly)
+# Policy for Lambda invoke (API invokes planner directly)
 resource "aws_iam_role_policy" "api_lambda_invoke" {
   name = "${local.name_prefix}-api-lambda-invoke"
   role = aws_iam_role.api_lambda_role.id
@@ -175,15 +155,9 @@ resource "aws_iam_role_policy" "api_lambda_invoke" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = "lambda:InvokeFunction"
-        Resource = [
-          "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:alex-planner",
-          "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:alex-tagger",
-          "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:alex-reporter",
-          "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:alex-charter",
-          "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:alex-retirement"
-        ]
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:localtaste-*"
       }
     ]
   })
@@ -210,8 +184,8 @@ resource "aws_lambda_function" "api" {
       AURORA_DATABASE    = data.terraform_remote_state.database.outputs.database_name
       DEFAULT_AWS_REGION = var.aws_region
 
-      # SQS configuration from Part 6
-      SQS_QUEUE_URL = data.terraform_remote_state.agents.outputs.sqs_queue_url
+      # Planner Lambda (invoked directly — no SQS)
+      PLANNER_FUNCTION = data.terraform_remote_state.agents.outputs.planner_function_name
 
       # Clerk configuration for JWT validation
       CLERK_JWKS_URL = var.clerk_jwks_url
@@ -225,7 +199,6 @@ resource "aws_lambda_function" "api" {
   # Ensure Lambda waits for dependencies including CloudFront
   depends_on = [
     aws_iam_role_policy.api_lambda_aurora,
-    aws_iam_role_policy.api_lambda_sqs,
     aws_iam_role_policy.api_lambda_invoke,
     aws_cloudfront_distribution.main
   ]

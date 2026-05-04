@@ -15,29 +15,6 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
-# ── SQS Queue ─────────────────────────────────────────────────────────────────
-
-resource "aws_sqs_queue" "jobs" {
-  name                       = "localtaste-jobs"
-  delay_seconds              = 0
-  max_message_size           = 262144
-  message_retention_seconds  = 86400
-  receive_wait_time_seconds  = 10
-  visibility_timeout_seconds = 910
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.jobs_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = { Project = "localtaste", Part = "6" }
-}
-
-resource "aws_sqs_queue" "jobs_dlq" {
-  name = "localtaste-jobs-dlq"
-  tags = { Project = "localtaste", Part = "6" }
-}
-
 # ── IAM Role ──────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "lambda_role" {
@@ -66,11 +43,6 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Effect   = "Allow"
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
-        Resource = aws_sqs_queue.jobs.arn
       },
       {
         Effect   = "Allow"
@@ -162,12 +134,6 @@ resource "aws_lambda_function" "planner" {
 
   tags       = { Project = "localtaste", Part = "6", Agent = "planner" }
   depends_on = [aws_s3_object.lambda_packages["planner"]]
-}
-
-resource "aws_lambda_event_source_mapping" "planner_sqs" {
-  event_source_arn = aws_sqs_queue.jobs.arn
-  function_name    = aws_lambda_function.planner.arn
-  batch_size       = 1
 }
 
 # ── Dish Discoverer (reporter dir) ────────────────────────────────────────────
