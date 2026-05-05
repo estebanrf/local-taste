@@ -149,10 +149,8 @@ def main():
     backend_dir = Path(__file__).parent
     services = [
         ('planner', backend_dir / 'planner' / 'planner_lambda.zip'),
-        ('tagger', backend_dir / 'tagger' / 'tagger_lambda.zip'),
-        ('reporter', backend_dir / 'reporter' / 'reporter_lambda.zip'),
-        ('charter', backend_dir / 'charter' / 'charter_lambda.zip'),
-        ('retirement', backend_dir / 'retirement' / 'retirement_lambda.zip'),
+        ('dish-discoverer', backend_dir / 'dish-discoverer' / 'dish_discoverer_lambda.zip'),
+        ('restaurant-ranker', backend_dir / 'restaurant-ranker' / 'restaurant_ranker_lambda.zip'),
     ]
     
     # Check if packages exist and optionally package them

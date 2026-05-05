@@ -6,6 +6,7 @@ Provides a simple interface for database operations
 import boto3
 import json
 import os
+import uuid as _uuid_mod
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import date, datetime
 from decimal import Decimal
@@ -279,7 +280,14 @@ class DataAPIClient:
             elif isinstance(value, list):
                 param["value"] = {"stringValue": json.dumps(value)}
             else:
-                param["value"] = {"stringValue": str(value)}
+                str_value = str(value)
+                param["value"] = {"stringValue": str_value}
+                # Tell the Data API this is a UUID so it casts correctly
+                try:
+                    _uuid_mod.UUID(str_value)
+                    param["typeHint"] = "UUID"
+                except (ValueError, AttributeError):
+                    pass
 
             parameters.append(param)
 

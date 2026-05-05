@@ -81,16 +81,19 @@ resource "aws_s3_bucket" "lambda_packages" {
 }
 
 locals {
-  agents = ["reporter", "charter"]
+  agents = {
+    "dish-discoverer"  = "dish_discoverer_lambda.zip"
+    "restaurant-ranker" = "restaurant_ranker_lambda.zip"
+  }
 }
 
 resource "aws_s3_object" "lambda_packages" {
-  for_each = toset(local.agents)
+  for_each = local.agents
 
   bucket = aws_s3_bucket.lambda_packages.id
-  key    = "${each.key}/${each.key}_lambda.zip"
-  source = "${path.module}/../../backend/${each.key}/${each.key}_lambda.zip"
-  etag   = fileexists("${path.module}/../../backend/${each.key}/${each.key}_lambda.zip") ? filemd5("${path.module}/../../backend/${each.key}/${each.key}_lambda.zip") : null
+  key    = "${each.key}/${each.value}"
+  source = "${path.module}/../../backend/${each.key}/${each.value}"
+  etag   = fileexists("${path.module}/../../backend/${each.key}/${each.value}") ? filemd5("${path.module}/../../backend/${each.key}/${each.value}") : null
 
   tags = { Project = "localtaste", Part = "6", Agent = each.key }
 }
@@ -118,8 +121,8 @@ resource "aws_lambda_function" "dish_discoverer" {
   function_name    = "lt-discoverer"
   role             = aws_iam_role.lambda_role.arn
   s3_bucket        = aws_s3_bucket.lambda_packages.id
-  s3_key           = aws_s3_object.lambda_packages["reporter"].key
-  source_code_hash = fileexists("${path.module}/../../backend/reporter/reporter_lambda.zip") ? filebase64sha256("${path.module}/../../backend/reporter/reporter_lambda.zip") : null
+  s3_key           = aws_s3_object.lambda_packages["dish-discoverer"].key
+  source_code_hash = fileexists("${path.module}/../../backend/dish-discoverer/dish_discoverer_lambda.zip") ? filebase64sha256("${path.module}/../../backend/dish-discoverer/dish_discoverer_lambda.zip") : null
   handler          = "lambda_handler.lambda_handler"
   runtime          = "python3.12"
   timeout          = 300
@@ -128,7 +131,7 @@ resource "aws_lambda_function" "dish_discoverer" {
   environment { variables = local.common_env }
 
   tags       = { Project = "localtaste", Part = "6", Agent = "dish-discoverer" }
-  depends_on = [aws_s3_object.lambda_packages["reporter"]]
+  depends_on = [aws_s3_object.lambda_packages["dish-discoverer"]]
 }
 
 # ── Restaurant Ranker (charter dir) ───────────────────────────────────────────
@@ -137,17 +140,21 @@ resource "aws_lambda_function" "restaurant_ranker" {
   function_name    = "lt-ranker"
   role             = aws_iam_role.lambda_role.arn
   s3_bucket        = aws_s3_bucket.lambda_packages.id
-  s3_key           = aws_s3_object.lambda_packages["charter"].key
-  source_code_hash = fileexists("${path.module}/../../backend/charter/charter_lambda.zip") ? filebase64sha256("${path.module}/../../backend/charter/charter_lambda.zip") : null
+  s3_key           = aws_s3_object.lambda_packages["restaurant-ranker"].key
+  source_code_hash = fileexists("${path.module}/../../backend/restaurant-ranker/restaurant_ranker_lambda.zip") ? filebase64sha256("${path.module}/../../backend/restaurant-ranker/restaurant_ranker_lambda.zip") : null
   handler          = "lambda_handler.lambda_handler"
   runtime          = "python3.12"
   timeout          = 300
   memory_size      = 1024
 
-  environment { variables = local.common_env }
+  environment {
+    variables = merge(local.common_env, {
+      TAVILY_API_KEY = var.tavily_api_key
+    })
+  }
 
   tags       = { Project = "localtaste", Part = "6", Agent = "restaurant-ranker" }
-  depends_on = [aws_s3_object.lambda_packages["charter"]]
+  depends_on = [aws_s3_object.lambda_packages["restaurant-ranker"]]
 }
 
 # ── CloudWatch Log Groups ─────────────────────────────────────────────────────

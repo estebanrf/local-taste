@@ -47,3 +47,10 @@ variable "openai_api_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "tavily_api_key" {
+  description = "Tavily API key for web search in Restaurant Ranker"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

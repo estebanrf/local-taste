@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Package the Charter Lambda function using Docker for AWS compatibility.
+Package the Restaurant Ranker Lambda function using Docker for AWS compatibility.
 """
 
 import os
@@ -11,6 +11,7 @@ import subprocess
 import argparse
 from pathlib import Path
 
+
 def run_command(cmd, cwd=None):
     """Run a command and capture output."""
     print(f"Running: {' '.join(cmd)}")
@@ -20,32 +21,28 @@ def run_command(cmd, cwd=None):
         sys.exit(1)
     return result.stdout
 
+
 def package_lambda():
     """Package the Lambda function with all dependencies."""
-    
-    # Get the directory containing this script
-    charter_dir = Path(__file__).parent.absolute()
-    backend_dir = charter_dir.parent
-    
-    # Create a temporary directory for packaging
+
+    agent_dir = Path(__file__).parent.absolute()
+    backend_dir = agent_dir.parent
+
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         package_dir = temp_path / "package"
         package_dir.mkdir()
-        
+
         print("Creating Lambda package using Docker...")
-        
-        # Export exact requirements from uv.lock (excluding the editable database package)
+
         print("Exporting requirements from uv.lock...")
         requirements_result = run_command(
             ["uv", "export", "--no-hashes", "--no-emit-project"],
-            cwd=str(charter_dir)
+            cwd=str(agent_dir)
         )
 
-        # Filter out packages that don't work in Lambda
         filtered_requirements = []
         for line in requirements_result.splitlines():
-            # Skip pyperclip (clipboard library not needed in Lambda)
             if line.startswith("pyperclip"):
                 print(f"Excluding from Lambda: {line}")
                 continue
@@ -53,8 +50,7 @@ def package_lambda():
 
         req_file = temp_path / "requirements.txt"
         req_file.write_text("\n".join(filtered_requirements))
-        
-        # Use Docker to install dependencies for Lambda's architecture
+
         docker_cmd = [
             "docker", "run", "--rm",
             "--platform", "linux/amd64",
@@ -63,50 +59,43 @@ def package_lambda():
             "--entrypoint", "/bin/bash",
             "public.ecr.aws/lambda/python:3.12",
             "-c",
-            """cd /build && pip install --target ./package -r requirements.txt && pip install --target ./package --no-deps /database"""
+            "cd /build && pip install --target ./package -r requirements.txt && pip install --target ./package --no-deps /database",
         ]
-        
+
         run_command(docker_cmd)
-        
-        # Copy Lambda handler, agent, templates, and observability
-        shutil.copy(charter_dir / "lambda_handler.py", package_dir)
-        shutil.copy(charter_dir / "agent.py", package_dir)
-        shutil.copy(charter_dir / "templates.py", package_dir)
-        shutil.copy(charter_dir / "observability.py", package_dir)
-        
-        # Create the zip file
-        zip_path = charter_dir / "charter_lambda.zip"
-        
-        # Remove old zip if it exists
+
+        shutil.copy(agent_dir / "lambda_handler.py", package_dir)
+        shutil.copy(agent_dir / "agent.py", package_dir)
+        shutil.copy(agent_dir / "templates.py", package_dir)
+        shutil.copy(agent_dir / "observability.py", package_dir)
+
+        zip_path = agent_dir / "restaurant_ranker_lambda.zip"
+
         if zip_path.exists():
             zip_path.unlink()
-        
-        # Create new zip
+
         print(f"Creating zip file: {zip_path}")
-        run_command(
-            ["zip", "-r", str(zip_path), "."],
-            cwd=str(package_dir)
-        )
-        
-        # Get file size
+        run_command(["zip", "-r", str(zip_path), "."], cwd=str(package_dir))
+
         size_mb = zip_path.stat().st_size / (1024 * 1024)
         print(f"Package created: {zip_path} ({size_mb:.1f} MB)")
-        
+
         return zip_path
+
 
 def deploy_lambda(zip_path):
     """Deploy the Lambda function to AWS via S3 (required for packages >50MB)."""
     import boto3
 
     session = boto3.session.Session()
-    lambda_client = session.client('lambda')
-    s3_client = session.client('s3')
-    sts_client = session.client('sts')
+    lambda_client = session.client("lambda")
+    s3_client = session.client("s3")
+    sts_client = session.client("sts")
 
-    account_id = sts_client.get_caller_identity()['Account']
-    function_name = 'lt-ranker'
-    s3_bucket = f'localtaste-lambda-packages-{account_id}'
-    s3_key = 'charter/charter_lambda.zip'
+    account_id = sts_client.get_caller_identity()["Account"]
+    function_name = "lt-ranker"
+    s3_bucket = f"localtaste-lambda-packages-{account_id}"
+    s3_key = "restaurant-ranker/restaurant_ranker_lambda.zip"
 
     print(f"Uploading package to s3://{s3_bucket}/{s3_key} ...")
     try:
@@ -132,24 +121,23 @@ def deploy_lambda(zip_path):
         print(f"Error deploying Lambda: {e}")
         sys.exit(1)
 
+
 def main():
-    parser = argparse.ArgumentParser(description='Package Charter Lambda for deployment')
-    parser.add_argument('--deploy', action='store_true', help='Deploy to AWS after packaging')
+    parser = argparse.ArgumentParser(description="Package Restaurant Ranker Lambda for deployment")
+    parser.add_argument("--deploy", action="store_true", help="Deploy to AWS after packaging")
     args = parser.parse_args()
-    
-    # Check if Docker is available
+
     try:
         run_command(["docker", "--version"])
     except FileNotFoundError:
         print("Error: Docker is not installed or not in PATH")
         sys.exit(1)
-    
-    # Package the Lambda
+
     zip_path = package_lambda()
-    
-    # Deploy if requested
+
     if args.deploy:
         deploy_lambda(zip_path)
+
 
 if __name__ == "__main__":
     main()
