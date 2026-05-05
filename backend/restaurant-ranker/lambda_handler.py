@@ -94,6 +94,7 @@ def lambda_handler(event, context):
             return {"statusCode": 400, "body": json.dumps({"error": "No job_id"})}
 
         asyncio.run(run_restaurant_ranker(job_id))
+        db.jobs.update_status(job_id, "completed")
         return {"statusCode": 200, "body": json.dumps({"success": True, "job_id": job_id})}
 
     except Exception as e:
