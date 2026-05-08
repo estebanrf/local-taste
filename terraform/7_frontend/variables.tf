@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "AWS region for deployment"
   type        = string
-  default     = "us-east-1"
+  default     = "eu-west-1"
 }
 
 # Clerk validation happens in Lambda, not at API Gateway level

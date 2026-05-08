@@ -15,7 +15,7 @@ load_dotenv(override=True)
 cluster_arn = os.environ.get("AURORA_CLUSTER_ARN")
 secret_arn  = os.environ.get("AURORA_SECRET_ARN")
 database    = os.environ.get("AURORA_DATABASE", "alex")
-region      = os.environ.get("DEFAULT_AWS_REGION", "us-east-1")
+region      = os.environ.get("DEFAULT_AWS_REGION", "eu-west-1")
 
 if not cluster_arn or not secret_arn:
     raise ValueError("Missing AURORA_CLUSTER_ARN or AURORA_SECRET_ARN in environment variables")

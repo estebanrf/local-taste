@@ -36,6 +36,7 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
         data = json.loads(raw[start:end])
 
         restaurants = data.get("restaurants", [])
+        logger.info(f"RestaurantRanker: parsed JSON, {len(restaurants)} restaurants found")
 
         if not category_mode and dish_id:
             db.restaurants.delete_by_dish(dish_id)
@@ -53,9 +54,12 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                     highlights=r.get("highlights", []),
                 )
                 db.restaurants.create_restaurant(rest)
+                logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']}")
+        else:
+            logger.info(f"RestaurantRanker: category_mode={category_mode} — skipping DB write, results in job payload only")
 
         db.jobs.update_restaurants(job_id, {"dish_id": dish_id, "restaurants": restaurants})
-        logger.info(f"RestaurantRanker: saved {len(restaurants)} restaurants (category_mode={category_mode})")
+        logger.info(f"RestaurantRanker: done, {len(restaurants)} restaurants (category_mode={category_mode})")
 
     except Exception as e:
         logger.error(f"RestaurantRanker: failed to save: {e}", exc_info=True)
@@ -75,6 +79,8 @@ async def run_restaurant_ranker(job_id: str) -> None:
     category_mode        = payload.get("category_mode", False)
     dietary_preferences  = payload.get("dietary_preferences") or []
 
+    logger.info(f"RestaurantRanker: job_id={job_id} dish_name={dish_name} city={city} country={country} category_mode={category_mode} dietary={dietary_preferences}")
+
     model, tools, task, context = create_agent(
         job_id, dish_id, dish_name, city, country, db,
         category_mode=category_mode,
@@ -89,6 +95,8 @@ async def run_restaurant_ranker(job_id: str) -> None:
             tools=tools,
         )
         result = await Runner.run(agent, input=task, context=context, max_turns=10)
+
+    logger.info(f"RestaurantRanker: agent output (first 500 chars): {result.final_output[:500]}")
 
     _save_ranking_results(
         job_id=job_id,

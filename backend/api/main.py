@@ -47,6 +47,7 @@ app.add_middleware(
 
 @app.exception_handler(ValidationError)
 async def validation_exception_handler(request: Request, exc: ValidationError):
+    logger.warning(f"Validation error: {exc}")
     return JSONResponse(status_code=422, content={"detail": "Invalid input data."})
 
 
@@ -70,7 +71,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 db = Database()
-_aws_region = os.getenv('DEFAULT_AWS_REGION', 'us-east-1')
+_aws_region = os.getenv('DEFAULT_AWS_REGION', 'eu-west-1')
 lambda_client = boto3.client('lambda', region_name=_aws_region)
 DISH_DISCOVERER_FUNCTION   = os.getenv('DISH_DISCOVERER_FUNCTION',   'lt-discoverer')
 RESTAURANT_RANKER_FUNCTION = os.getenv('RESTAURANT_RANKER_FUNCTION', 'lt-ranker')
@@ -268,6 +269,7 @@ async def rank_restaurants(request: RankRestaurantsRequest, clerk_user_id: str =
         # If restaurants already cached, return instantly via completed job stub
         existing = db.restaurants.find_by_dish(request.dish_id)
         if existing:
+            logger.info(f"rank_restaurants: cache hit for dish_id={request.dish_id} ({len(existing)} restaurants)")
             job_id = db.jobs.create_job(
                 clerk_user_id=clerk_user_id,
                 job_type="restaurant_ranking",
@@ -308,6 +310,8 @@ async def rank_by_category(request: RankByCategoryRequest, clerk_user_id: str = 
     bypassing the dish discovery step.
     """
     try:
+        logger.info(f"rank_by_category: category={request.category} city={request.city} country={request.country} dietary={request.dietary_preferences}")
+
         job_id = db.jobs.create_job(
             clerk_user_id=clerk_user_id,
             job_type="restaurant_ranking",

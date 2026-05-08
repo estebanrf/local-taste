@@ -26,7 +26,7 @@ LOG_GROUPS = {
 
 
 class AgentLogWatcher:
-    def __init__(self, region: str = 'us-east-1', lookback_minutes: int = 5):
+    def __init__(self, region: str = 'eu-west-1', lookback_minutes: int = 5):
         self.logs_client = boto3.client('logs', region_name=region)
         self.lookback_minutes = lookback_minutes
         self.last_timestamps = {agent: 0 for agent in LOG_GROUPS}
@@ -107,7 +107,7 @@ class AgentLogWatcher:
 
 def main():
     parser = argparse.ArgumentParser(description='Watch Local Taste agent logs')
-    parser.add_argument('--region', default='us-east-1')
+    parser.add_argument('--region', default='eu-west-1')
     parser.add_argument('--lookback', type=int, default=5)
     parser.add_argument('--interval', type=int, default=2)
     args = parser.parse_args()

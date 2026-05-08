@@ -51,7 +51,8 @@ async def search_web(wrapper: RunContextWrapper[RestaurantRankerContext], query:
             f"**{r.get('title', '')}**\n{r.get('url', '')}\n{r.get('content', '')}"
             for r in results
         )
-        logger.info(f"Tavily search for '{query}' returned {len(results)} results")
+        logger.info(f"Tavily search query: {query}")
+    logger.info(f"Tavily search for '{query}' returned {len(results)} results")
         return text or "No results found."
     except Exception as e:
         logger.warning(f"Tavily search failed: {e}")
@@ -68,9 +69,11 @@ def create_agent(
     category_mode: bool = False,
     dietary_preferences: Optional[List[str]] = None,
 ):
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0")
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-pro-v1:0")
+    bedrock_region = os.getenv("BEDROCK_REGION", "eu-west-1")
     os.environ["AWS_REGION_NAME"] = bedrock_region
+
+    logger.info(f"RestaurantRanker agent: model={model_id} region={bedrock_region} category_mode={category_mode} dietary={dietary_preferences} job_id={job_id}")
 
     model = LitellmModel(model=f"bedrock/{model_id}")
     context = RestaurantRankerContext(
@@ -93,4 +96,5 @@ def create_agent(
 
     task += '\n\nCompile your final JSON with exactly 5 restaurants. Use real data from search results.'
 
+    logger.info(f"RestaurantRanker task: {task[:400]}")
     return model, [search_web], task, context

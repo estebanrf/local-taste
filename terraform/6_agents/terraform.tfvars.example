@@ -1,19 +1,19 @@
 # Part 6: Local Taste Agent Configuration
 # Copy to terraform.tfvars and fill in your values
 
-aws_region = "us-east-1"
+aws_region = "eu-west-1"
 
 # Aurora cluster ARN from Part 5 (run: cd terraform/5_database && terraform output)
-aurora_cluster_arn = "arn:aws:rds:us-east-1:123456789012:cluster:localtaste-aurora-cluster"
+aurora_cluster_arn = "arn:aws:rds:eu-west-1:123456789012:cluster:localtaste-aurora-cluster"
 
 # Aurora secret ARN from Part 5
-aurora_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:localtaste-aurora-credentials-xxxxx"
+aurora_secret_arn = "arn:aws:secretsmanager:eu-west-1:123456789012:secret:localtaste-aurora-credentials-xxxxx"
 
 # Bedrock model - Nova Pro recommended
 bedrock_model_id = "us.amazon.nova-pro-v1:0"
 
-# Bedrock region (us-west-2 has broadest model availability)
-bedrock_region = "us-west-2"
+# Bedrock region (eu-west-1 has broadest model availability)
+bedrock_region = "eu-west-1"
 
 # LangFuse observability (optional - configure in Part 8)
 # langfuse_public_key = "pk-lf-..."

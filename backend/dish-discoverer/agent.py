@@ -22,9 +22,11 @@ class DishDiscovererContext:
 
 
 def create_agent(job_id: str, city: str, country: str, city_id: Optional[str], db):
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0")
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-pro-v1:0")
+    bedrock_region = os.getenv("BEDROCK_REGION", "eu-west-1")
     os.environ["AWS_REGION_NAME"] = bedrock_region
+
+    logger.info(f"DishDiscoverer agent: model={model_id} region={bedrock_region} city={city} country={country} job_id={job_id}")
 
     model = LitellmModel(model=f"bedrock/{model_id}")
     context = DishDiscovererContext(job_id=job_id, city=city, country=country, city_id=city_id, db=db)
@@ -33,4 +35,5 @@ def create_agent(job_id: str, city: str, country: str, city_id: Optional[str], d
 
 Return your answer as JSON with exactly 5 dishes ranked 1-5. No descriptions, just 5 dishes names of 3 words each at most."""
 
+    logger.info(f"DishDiscoverer task: {task[:300]}")
     return model, [], task, context

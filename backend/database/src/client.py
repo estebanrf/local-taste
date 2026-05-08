@@ -53,7 +53,7 @@ class DataAPIClient:
                 "Set AURORA_CLUSTER_ARN and AURORA_SECRET_ARN environment variables."
             )
 
-        self.region = os.environ.get("DEFAULT_AWS_REGION", "us-east-1")
+        self.region = os.environ.get("DEFAULT_AWS_REGION", "eu-west-1")
         self.client = boto3.client("rds-data", region_name=self.region)
 
     def execute(self, sql: str, parameters: List[Dict] = None) -> Dict:
@@ -83,7 +83,8 @@ class DataAPIClient:
             return response
 
         except ClientError as e:
-            logger.error(f"Database error: {e}")
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            logger.error(f"Database error code={error_code} sql={sql[:200].strip()} error={e}")
             raise
 
     def query(self, sql: str, parameters: List[Dict] = None) -> List[Dict]:

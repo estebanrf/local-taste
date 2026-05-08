@@ -36,6 +36,8 @@ def _save_discovery_results(job_id: str, result_text: str, city: str, country: s
             raise ValueError("No JSON found in agent response")
         data = json.loads(raw[start:end])
 
+        logger.info(f"DishDiscoverer: parsed JSON successfully, {len(data.get('dishes', []))} dishes found")
+
         if not city_id:
             city_obj = CityCreate(
                 name=data.get("city", city),
@@ -44,6 +46,7 @@ def _save_discovery_results(job_id: str, result_text: str, city: str, country: s
                 description=data.get("city_description", ""),
             )
             city_id = db.cities.upsert_city(city_obj)
+            logger.info(f"DishDiscoverer: upserted city_id={city_id}")
 
         db.dishes.delete_by_city(city_id)
 
@@ -59,6 +62,7 @@ def _save_discovery_results(job_id: str, result_text: str, city: str, country: s
                 image_query=dish_data.get("image_query"),
             )
             db.dishes.create_dish(dish)
+            logger.info(f"DishDiscoverer: saved dish rank={dish_data.get('rank')} name={dish_data['name']}")
 
         db.jobs.update_dishes(job_id, {"city_id": city_id, "city": city, "country": country, "dishes": dishes})
         db.jobs.update_summary(job_id, {"city_id": city_id, "dishes_saved": len(dishes)})
@@ -80,8 +84,11 @@ async def run_dish_discoverer(job_id: str) -> None:
     slug     = payload.get("slug", f"{city.lower()}-{country.lower()}")
     city_id  = payload.get("city_id")
 
+    logger.info(f"DishDiscoverer: job_id={job_id} city={city} country={country} city_id={city_id}")
+
     model, tools, task, context = create_agent(job_id, city, country, city_id, db)
 
+    logger.info(f"DishDiscoverer: starting agent run")
     with trace("Dish Discoverer"):
         agent = Agent[DishDiscovererContext](
             name="Dish Discoverer",
@@ -90,6 +97,8 @@ async def run_dish_discoverer(job_id: str) -> None:
             tools=tools,
         )
         result = await Runner.run(agent, input=task, context=context, max_turns=10)
+
+    logger.info(f"DishDiscoverer: agent output (first 500 chars): {result.final_output[:500]}")
 
     _save_discovery_results(
         job_id=job_id,

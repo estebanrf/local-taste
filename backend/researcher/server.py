@@ -157,20 +157,20 @@ async def test_bedrock():
         import boto3
 
         # Set ALL region environment variables
-        os.environ["AWS_REGION_NAME"] = "us-east-1"
-        os.environ["AWS_REGION"] = "us-east-1"
-        os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+        os.environ["AWS_REGION_NAME"] = "eu-west-1"
+        os.environ["AWS_REGION"] = "eu-west-1"
+        os.environ["AWS_DEFAULT_REGION"] = "eu-west-1"
 
         # Debug: Check what region boto3 is actually using
         session = boto3.Session()
         actual_region = session.region_name
 
         # Try to create Bedrock client explicitly in us-west-2
-        client = boto3.client("bedrock-runtime", region_name="us-west-2")
+        client = boto3.client("bedrock-runtime", region_name="eu-west-1")
 
         # Debug: Try to list models to verify connection
         try:
-            bedrock_client = boto3.client("bedrock", region_name="us-west-2")
+            bedrock_client = boto3.client("bedrock", region_name="eu-west-1")
             models = bedrock_client.list_foundation_models()
             openai_models = [
                 m["modelId"] for m in models["modelSummaries"] if "openai" in m["modelId"].lower()

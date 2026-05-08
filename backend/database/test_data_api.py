@@ -17,7 +17,7 @@ load_dotenv(override=True)
 def get_current_region():
     """Get the current AWS region from the session"""
     session = boto3.Session()
-    return session.region_name or os.getenv('DEFAULT_AWS_REGION', 'us-east-1')
+    return session.region_name or os.getenv('DEFAULT_AWS_REGION', 'eu-west-1')
 
 def get_cluster_details(region):
     """Get Aurora cluster ARN and secret ARN from environment variables or verify they exist"""
