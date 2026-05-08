@@ -70,7 +70,8 @@ export default function Dashboard() {
       }
     }
     loadData();
-  }, [isLoaded, user, getToken]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, user]);
 
   const handleSave = async () => {
     if (!displayName.trim()) {
@@ -91,6 +92,23 @@ export default function Dashboard() {
       showToast("error", "Failed to save profile");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleDietaryPref = async (id: string) => {
+    const next = dietaryPrefs.includes(id)
+      ? dietaryPrefs.filter(p => p !== id)
+      : [...dietaryPrefs, id];
+    setDietaryPrefs(next);
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/user`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ dietary_notes: JSON.stringify(next) }),
+      });
+    } catch {
+      showToast("error", "Failed to save preferences.");
     }
   };
 
@@ -209,9 +227,7 @@ export default function Dashboard() {
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() => setDietaryPrefs(prev =>
-                              prev.includes(opt.id) ? prev.filter(p => p !== opt.id) : [...prev, opt.id]
-                            )}
+                            onClick={() => toggleDietaryPref(opt.id)}
                             className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
                               active
                                 ? "border-primary bg-purple-50 text-primary"

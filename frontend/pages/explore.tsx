@@ -75,7 +75,9 @@ export default function Explore() {
     setCityInput(city);
     setCountryInput(country);
   }, []);
-  const [foodCategory, setFoodCategory] = useState<string>(LOCAL_CATEGORY);
+  const [isLocal, setIsLocal] = useState(true);
+  const [selectedCuisine, setSelectedCuisine] = useState<string | null>(null);
+  const [selectedMealTime, setSelectedMealTime] = useState<string | null>(null);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [useMyPrefs, setUseMyPrefs] = useState(true);
   const [customPrefs, setCustomPrefs] = useState<string[]>([]);
@@ -88,6 +90,7 @@ export default function Explore() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [addedToTripKeys, setAddedToTripKeys] = useState<Set<string>>(new Set());
 
   // Load user dietary preferences and itinerary dish IDs once Clerk has initialized
   useEffect(() => {
@@ -154,23 +157,26 @@ export default function Explore() {
     setSelectedDish(null);
     setRestaurants([]);
 
-    // Non-local category: skip dish discovery, go straight to restaurants
-    if (foodCategory !== LOCAL_CATEGORY) {
-      const cat = FOOD_CATEGORIES.find(c => c.id === foodCategory);
-      const catName = cat ? `${cat.emoji} ${cat.label}` : foodCategory;
+    const activeDietary = useMyPrefs ? dietaryPrefs : customPrefs;
+
+    // Non-local: skip dish discovery, go straight to restaurant ranking
+    if (!isLocal) {
+      const catId = selectedCuisine || selectedMealTime;
+      const cat = FOOD_CATEGORIES.find(c => c.id === catId);
+      const catName = cat ? `${cat.emoji} ${cat.label}` : (catId ?? "food");
       setCategoryLabel(catName);
       setStage("loading_restaurants");
-      setStatusMessage(`Finding the best ${cat?.label || foodCategory} spots in ${cityInput}…`);
+      setStatusMessage(`Finding the best ${cat?.label || catId} spots in ${cityInput}…`);
       try {
         const token = await getToken();
         const res = await fetch(`${API_URL}/api/rank-by-category`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            category: cat?.label || foodCategory,
+            category: cat?.label || catId,
             city: cityInput.trim(),
             country: countryInput.trim(),
-            dietary_preferences: dietaryPrefs,
+            dietary_preferences: activeDietary,
           }),
         });
         if (!res.ok) throw new Error("Failed to start category search");
@@ -199,7 +205,8 @@ export default function Explore() {
         body: JSON.stringify({
           city: cityInput.trim(),
           country: countryInput.trim(),
-          dietary_preferences: useMyPrefs ? dietaryPrefs : customPrefs,
+          dietary_preferences: activeDietary,
+          meal_time: selectedMealTime,
         }),
       });
       if (!res.ok) throw new Error("Failed to start discovery");
@@ -305,6 +312,27 @@ export default function Explore() {
     }
   };
 
+  const handleAddRestaurantToTrip = async (restaurantName: string) => {
+    const dishName = selectedDish ? selectedDish.name : categoryLabel;
+    const key = `${dishName}|${cityInput}`;
+    try {
+      const token = await getToken();
+      const body = selectedDish
+        ? { dish_id: selectedDish.id }
+        : { dish_name: dishName, city_name: cityInput.trim(), country: countryInput.trim() };
+      await fetch(`${API_URL}/api/itinerary`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      setAddedToTripKeys(prev => new Set([...prev, key]));
+      if (selectedDish) setItineraryDishIds(prev => new Set([...prev, selectedDish.id]));
+      showToast("success", `Added to your trip!`);
+    } catch {
+      showToast("error", "Failed to add to trip.");
+    }
+  };
+
 
   const getMealMoment = (tags: string[]): { emoji: string; label: string } | null => {
     const t = tags.map(s => s.toLowerCase()).join(" ");
@@ -352,131 +380,146 @@ export default function Explore() {
 
           {/* Food category selector */}
           <div className="bg-white rounded-xl shadow p-6 mb-4">
-            {/* Local dishes — hero option */}
-            <div className="mb-4">
+
+            {/* Top-level toggle */}
+            <div className="grid grid-cols-2 gap-3 mb-5">
               <button
                 type="button"
-                onClick={() => setFoodCategory(LOCAL_CATEGORY)}
-                className={`w-full flex items-center gap-3 px-5 py-4 rounded-xl border-2 font-semibold text-left transition-all ${
-                  foodCategory === LOCAL_CATEGORY
-                    ? "border-primary bg-purple-50 text-primary"
-                    : "border-gray-200 text-gray-700 hover:border-purple-200"
+                onClick={() => setIsLocal(true)}
+                className={`flex items-center gap-3 px-4 py-4 rounded-xl border-2 font-semibold text-left transition-all ${
+                  isLocal ? "border-primary bg-purple-50 text-primary" : "border-gray-200 text-gray-700 hover:border-purple-200"
                 }`}
               >
                 <span className="text-2xl">🌍</span>
                 <div>
-                  <div className="font-bold">Local dishes</div>
-                  <div className="text-xs font-normal text-gray-500">What locals actually eat — the soul of the city</div>
+                  <div className="font-bold text-sm">Local dishes</div>
+                  <div className="text-xs font-normal text-gray-500">The soul of the city</div>
                 </div>
-                {foodCategory === LOCAL_CATEGORY && <span className="ml-auto text-primary">✓</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsLocal(false)}
+                className={`flex items-center gap-3 px-4 py-4 rounded-xl border-2 font-semibold text-left transition-all ${
+                  !isLocal ? "border-primary bg-purple-50 text-primary" : "border-gray-200 text-gray-700 hover:border-purple-200"
+                }`}
+              >
+                <span className="text-2xl">🍽️</span>
+                <div>
+                  <div className="font-bold text-sm">Not feeling local?</div>
+                  <div className="text-xs font-normal text-gray-500">Pick a cuisine or meal time</div>
+                </div>
               </button>
             </div>
 
-            {/* Dietary preferences — only shown for local dishes discovery */}
-            {foodCategory === LOCAL_CATEGORY && (
-              <div className="mb-5 border border-gray-100 rounded-xl p-4 bg-gray-50">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-semibold text-gray-700">Dietary preferences</span>
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <span className="text-xs text-gray-500">Use my saved preferences</span>
+            {/* Cuisine grid — only for non-local */}
+            {!isLocal && (
+              <div className="mb-5">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Cuisine</p>
+                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-10 gap-2">
+                  {CUISINE_CATEGORIES.map(cat => (
                     <button
+                      key={cat.id}
                       type="button"
-                      role="switch"
-                      aria-checked={useMyPrefs}
-                      onClick={() => setUseMyPrefs(v => !v)}
-                      className={`relative w-10 h-5 rounded-full transition-colors ${useMyPrefs ? "bg-primary" : "bg-gray-300"}`}
+                      onClick={() => setSelectedCuisine(prev => prev === cat.id ? null : cat.id)}
+                      className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
+                        selectedCuisine === cat.id
+                          ? "border-primary bg-purple-50 text-primary"
+                          : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
+                      }`}
                     >
-                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${useMyPrefs ? "translate-x-5" : "translate-x-0"}`} />
+                      <span className="text-xl">{cat.emoji}</span>
+                      <span>{cat.label}</span>
                     </button>
-                  </label>
+                  ))}
                 </div>
-                {useMyPrefs ? (
-                  dietaryPrefs.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {dietaryPrefs.map(p => {
-                        const opt = DIETARY_OPTIONS.find(o => o.id === p);
-                        return (
-                          <span key={p} className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-200">
-                            {opt?.emoji} {opt?.label ?? p}
-                          </span>
-                        );
-                      })}
-                      <Link href="/passport" className="text-xs text-gray-400 hover:text-primary self-center ml-1">edit →</Link>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-gray-400">
-                      No preferences saved. <Link href="/passport" className="text-primary hover:underline">Set them in your passport</Link>.
-                    </p>
-                  )
-                ) : (
-                  <div>
-                    <p className="text-xs text-gray-500 mb-2">Select which preferences to apply to this search:</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {DIETARY_OPTIONS.map(opt => {
-                        const active = customPrefs.includes(opt.id);
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => setCustomPrefs(prev =>
-                              prev.includes(opt.id) ? prev.filter(p => p !== opt.id) : [...prev, opt.id]
-                            )}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
-                              active
-                                ? "border-primary bg-purple-50 text-primary"
-                                : "border-gray-200 text-gray-600 hover:border-purple-200 hover:bg-white"
-                            }`}
-                          >
-                            <span>{opt.emoji}</span>
-                            <span>{opt.label}</span>
-                            {active && <span className="ml-auto text-primary">✓</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
-            {/* Cuisines */}
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Not feeling local?</p>
-            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-10 gap-2 mb-5">
-              {CUISINE_CATEGORIES.map(cat => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setFoodCategory(cat.id)}
-                  className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
-                    foodCategory === cat.id
-                      ? "border-primary bg-purple-50 text-primary"
-                      : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
-                  }`}
-                >
-                  <span className="text-xl">{cat.emoji}</span>
-                  <span>{cat.label}</span>
-                </button>
-              ))}
+            {/* Meal time — shown for both modes */}
+            <div className="mb-5">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Meal time <span className="normal-case font-normal text-gray-300">(optional)</span></p>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {MEAL_CATEGORIES.map(cat => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setSelectedMealTime(prev => prev === cat.id ? null : cat.id)}
+                    className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
+                      selectedMealTime === cat.id
+                        ? "border-primary bg-purple-50 text-primary"
+                        : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    <span className="text-xl">{cat.emoji}</span>
+                    <span>{cat.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Meal times */}
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">By meal time</p>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {MEAL_CATEGORIES.map(cat => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setFoodCategory(cat.id)}
-                  className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
-                    foodCategory === cat.id
-                      ? "border-primary bg-purple-50 text-primary"
-                      : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
-                  }`}
-                >
-                  <span className="text-xl">{cat.emoji}</span>
-                  <span>{cat.label}</span>
-                </button>
-              ))}
+            {/* Dietary preferences — shown for both modes */}
+            <div className="border border-gray-100 rounded-xl p-4 bg-gray-50">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-semibold text-gray-700">Dietary preferences</span>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className="text-xs text-gray-500">Use my saved preferences</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={useMyPrefs}
+                    onClick={() => setUseMyPrefs(v => !v)}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${useMyPrefs ? "bg-primary" : "bg-gray-300"}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${useMyPrefs ? "translate-x-5" : "translate-x-0"}`} />
+                  </button>
+                </label>
+              </div>
+              {useMyPrefs ? (
+                dietaryPrefs.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {dietaryPrefs.map(p => {
+                      const opt = DIETARY_OPTIONS.find(o => o.id === p);
+                      return (
+                        <span key={p} className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-200">
+                          {opt?.emoji} {opt?.label ?? p}
+                        </span>
+                      );
+                    })}
+                    <Link href="/passport" className="text-xs text-gray-400 hover:text-primary self-center ml-1">edit →</Link>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">
+                    No preferences saved. <Link href="/passport" className="text-primary hover:underline">Set them in your passport</Link>.
+                  </p>
+                )
+              ) : (
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">Select which preferences to apply to this search:</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {DIETARY_OPTIONS.map(opt => {
+                      const active = customPrefs.includes(opt.id);
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setCustomPrefs(prev =>
+                            prev.includes(opt.id) ? prev.filter(p => p !== opt.id) : [...prev, opt.id]
+                          )}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                            active
+                              ? "border-primary bg-purple-50 text-primary"
+                              : "border-gray-200 text-gray-600 hover:border-purple-200 hover:bg-white"
+                          }`}
+                        >
+                          <span>{opt.emoji}</span>
+                          <span>{opt.label}</span>
+                          {active && <span className="ml-auto text-primary">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -492,7 +535,7 @@ export default function Explore() {
                 disabled={stage === "searching" || stage === "loading_restaurants"}
                 className="px-8 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-lg transition-colors"
               >
-                {stage === "searching" ? "Searching…" : foodCategory === LOCAL_CATEGORY ? "Discover" : "Find restaurants"}
+                {stage === "searching" ? "Searching…" : isLocal ? "Discover" : "Find restaurants"}
               </button>
             </div>
           </form>
@@ -647,7 +690,7 @@ export default function Explore() {
           )}
 
           {/* Restaurants */}
-          {stage === "restaurants" && (selectedDish || foodCategory !== LOCAL_CATEGORY) && (
+          {stage === "restaurants" && (selectedDish || !isLocal) && (
             <div className="space-y-4">
               {/* Dish description banner */}
               {selectedDish && (
@@ -688,7 +731,7 @@ export default function Explore() {
                 </div>
                 <button
                   onClick={() => {
-                    if (foodCategory !== LOCAL_CATEGORY) { setStage("idle"); setRestaurants([]); }
+                    if (!isLocal) { setStage("idle"); setRestaurants([]); }
                     else { setStage("dishes"); setSelectedDish(null); setRestaurants([]); }
                   }}
                   className="flex-shrink-0 text-sm text-gray-500 hover:text-gray-700"
@@ -746,7 +789,7 @@ export default function Explore() {
                               <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">{h}</span>
                             ))}
                           </div>
-                          <div className="mt-3 flex gap-3">
+                          <div className="mt-3 flex gap-3 flex-wrap">
                             {r.google_maps_url && (
                               <a
                                 href={r.google_maps_url}
@@ -765,6 +808,22 @@ export default function Explore() {
                                 🛂 Add to Passport
                               </button>
                             )}
+                            {(() => {
+                              const key = `${selectedDish ? selectedDish.name : categoryLabel}|${cityInput}`;
+                              const alreadyAdded = addedToTripKeys.has(key) || (selectedDish ? itineraryDishIds.has(selectedDish.id) : false);
+                              return alreadyAdded ? (
+                                <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
+                                  ✓ In my trip
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleAddRestaurantToTrip(r.name)}
+                                  className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
+                                >
+                                  🗺️ Add to trip
+                                </button>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>

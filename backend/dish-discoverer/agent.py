@@ -22,18 +22,23 @@ class DishDiscovererContext:
     dietary_preferences: List[str] = field(default_factory=list)
 
 
-def create_agent(job_id: str, city: str, country: str, city_id: Optional[str], db, dietary_preferences: Optional[List[str]] = None):
+def create_agent(job_id: str, city: str, country: str, city_id: Optional[str], db, dietary_preferences: Optional[List[str]] = None, meal_time: Optional[str] = None):
     model_id = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-pro-v1:0")
     bedrock_region = os.getenv("BEDROCK_REGION", "eu-west-1")
     os.environ["AWS_REGION_NAME"] = bedrock_region
 
     dietary_preferences = dietary_preferences or []
-    logger.info(f"DishDiscoverer agent: model={model_id} region={bedrock_region} city={city} country={country} dietary={dietary_preferences} job_id={job_id}")
+    logger.info(f"DishDiscoverer agent: model={model_id} region={bedrock_region} city={city} country={country} dietary={dietary_preferences} meal_time={meal_time} job_id={job_id}")
 
     model = LitellmModel(model=f"bedrock/{model_id}")
     context = DishDiscovererContext(job_id=job_id, city=city, country=country, city_id=city_id, db=db, dietary_preferences=dietary_preferences)
 
     task = f"""From your training knowledge, identify the top 5 most iconic must-try food specialities of {city}, {country}."""
+
+    if meal_time:
+        task += f"""
+
+The user is specifically looking for {meal_time} options. Focus on dishes that are typically eaten at {meal_time}."""
 
     if dietary_preferences:
         prefs = ", ".join(dietary_preferences)

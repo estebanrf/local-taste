@@ -98,6 +98,7 @@ class DiscoverRequest(BaseModel):
     city: str = Field(description="City name, e.g. 'Tokyo'")
     country: str = Field(description="Country name, e.g. 'Japan'")
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+    meal_time: Optional[str] = None
 
 
 class DiscoverResponse(BaseModel):
@@ -203,7 +204,7 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
         job_id = db.jobs.create_job(
             clerk_user_id=clerk_user_id,
             job_type="city_discovery",
-            request_payload={"city": request.city, "country": request.country, "slug": slug, "city_id": city['id'] if city else None, "dietary_preferences": dietary},
+            request_payload={"city": request.city, "country": request.country, "slug": slug, "city_id": city['id'] if city else None, "dietary_preferences": dietary, "meal_time": request.meal_time},
         )
         logger.info(f"[discover] job created: {job_id} dietary={dietary}")
 
@@ -462,27 +463,38 @@ async def get_itinerary(clerk_user_id: str = Depends(get_current_user_id)):
 @app.post("/api/itinerary")
 async def add_itinerary_item(item: ItineraryItemCreate, clerk_user_id: str = Depends(get_current_user_id)):
     try:
-        dish = db.dishes.find_by_id(item.dish_id)
-        if not dish:
-            raise HTTPException(status_code=404, detail="Dish not found")
+        if item.dish_id:
+            # Local dish flow — resolve name/city from DB
+            dish = db.dishes.find_by_id(item.dish_id)
+            if not dish:
+                raise HTTPException(status_code=404, detail="Dish not found")
+            city = db.cities.find_by_id(dish["city_id"])
+            if not city:
+                raise HTTPException(status_code=404, detail="City not found")
+            dish_name = dish["name"]
+            city_name = city["name"]
+            country = city["country"]
 
-        city = db.cities.find_by_id(dish["city_id"])
-        if not city:
-            raise HTTPException(status_code=404, detail="City not found")
+            existing = db.itinerary.find_by_user_and_dish(clerk_user_id, item.dish_id)
+            if existing:
+                return existing
+        else:
+            # Free-form flow — caller provides name/city directly
+            if not item.dish_name or not item.city_name or not item.country:
+                raise HTTPException(status_code=400, detail="dish_name, city_name, and country are required when dish_id is not provided")
+            dish_name = item.dish_name
+            city_name = item.city_name
+            country = item.country
 
-        existing = db.itinerary.find_by_user_and_dish(clerk_user_id, item.dish_id)
-        if existing:
-            return existing
-
-        item_id = db.itinerary.create_item(
+        db.itinerary.create_item(
             clerk_user_id=clerk_user_id,
             item=item,
-            dish_name=dish["name"],
-            city_name=city["name"],
-            country=city["country"],
+            dish_name=dish_name,
+            city_name=city_name,
+            country=country,
         )
-        logger.info(f"Itinerary: added dish={dish['name']} city={city['name']} user={clerk_user_id}")
-        return db.itinerary.find_by_user_and_dish(clerk_user_id, item.dish_id)
+        logger.info(f"Itinerary: added dish={dish_name} city={city_name} user={clerk_user_id}")
+        return {"ok": True}
     except HTTPException:
         raise
     except Exception as e:

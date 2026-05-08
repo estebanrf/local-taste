@@ -105,7 +105,10 @@ class UserUpdate(BaseModel):
 # ── Itinerary ─────────────────────────────────────────────────────────────────
 
 class ItineraryItemCreate(BaseModel):
-    dish_id: str
+    dish_id: Optional[str] = None
+    dish_name: Optional[str] = None
+    city_name: Optional[str] = None
+    country: Optional[str] = None
     notes: Optional[str] = None
 
 

@@ -212,11 +212,12 @@ class ItineraryItems(BaseModel):
     def create_item(self, clerk_user_id: str, item: ItineraryItemCreate, dish_name: str, city_name: str, country: str) -> str:
         data = {
             'clerk_user_id': clerk_user_id,
-            'dish_id': item.dish_id,
             'dish_name': dish_name,
             'city_name': city_name,
             'country': country,
         }
+        if item.dish_id:
+            data['dish_id'] = item.dish_id
         if item.notes:
             data['notes'] = item.notes
         return self.db.insert('itinerary_items', data, returning='id')
