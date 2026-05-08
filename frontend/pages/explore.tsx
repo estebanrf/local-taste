@@ -4,6 +4,7 @@ import Layout from "../components/Layout";
 import CityAutocomplete from "../components/CityAutocomplete";
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
+import Link from "next/link";
 import Head from "next/head";
 
 interface Dish {
@@ -65,17 +66,18 @@ export default function Explore() {
   const [foodCategory, setFoodCategory] = useState<string>(LOCAL_CATEGORY);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [stage, setStage] = useState<Stage>("idle");
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [_jobId, setJobId] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [city, setCity] = useState<City | null>(null);
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [restaurantJobId, setRestaurantJobId] = useState<string | null>(null);
+  const [_restaurantJobId, setRestaurantJobId] = useState<string | null>(null);
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
 
   // Load user dietary preferences on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     getToken().then(token => {
       if (!token) return;
@@ -377,7 +379,7 @@ export default function Explore() {
             </div>
             {dietaryPrefs.length > 0 && (
               <p className="text-xs text-gray-400 mt-3">
-                Filtering for: {dietaryPrefs.join(", ")} — <a href="/passport" className="text-primary hover:underline">edit preferences</a>
+                Filtering for: {dietaryPrefs.join(", ")} — <Link href="/passport" className="text-primary hover:underline">edit preferences</Link>
               </p>
             )}
           </form>
@@ -580,7 +582,7 @@ export default function Explore() {
                             </div>
                           </div>
                           {r.rank_rationale && (
-                            <p className="text-sm text-gray-600 mt-2 italic leading-relaxed">"{r.rank_rationale}"</p>
+                            <p className="text-sm text-gray-600 mt-2 italic leading-relaxed">&ldquo;{r.rank_rationale}&rdquo;</p>
                           )}
                           <div className="mt-2 flex flex-wrap gap-1">
                             {r.highlights.slice(0, 4).map((h, i) => (

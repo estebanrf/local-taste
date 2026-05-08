@@ -72,6 +72,7 @@ export default function Passport() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const toggleDietaryPref = async (id: string) => {
@@ -199,7 +200,7 @@ export default function Passport() {
           <div className="bg-white rounded-xl shadow p-6 mb-8">
             <div className="mb-4">
               <h2 className="text-lg font-bold text-dark">Your dietary preferences</h2>
-              <p className="text-sm text-gray-500 mt-0.5">We'll use these to surface better restaurant options when you search.</p>
+              <p className="text-sm text-gray-500 mt-0.5">We&apos;ll use these to surface better restaurant options when you search.</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {DIETARY_OPTIONS.map(opt => {
@@ -295,7 +296,7 @@ export default function Passport() {
                                 <p className="text-violet-400 mt-1">{"★".repeat(entry.rating)}{"☆".repeat(5 - entry.rating)}</p>
                               )}
                               {entry.notes && (
-                                <p className="text-sm text-gray-600 mt-1 italic">"{entry.notes}"</p>
+                                <p className="text-sm text-gray-600 mt-1 italic">&ldquo;{entry.notes}&rdquo;</p>
                               )}
                               <p className="text-xs text-gray-400 mt-2">
                                 {new Date(entry.tasted_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}

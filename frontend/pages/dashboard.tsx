@@ -1,18 +1,11 @@
 import { useUser, useAuth } from "@clerk/nextjs";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { API_URL } from "../lib/config";
 import Layout from "../components/Layout";
 import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import { showToast } from "../components/Toast";
 import Link from "next/link";
 import Head from "next/head";
-
-interface UserData {
-  clerk_user_id: string;
-  display_name: string;
-  home_city: string | null;
-  dietary_notes: string | null;
-}
 
 interface PassportStats {
   total_dishes: number;
@@ -35,7 +28,6 @@ interface PassportEntry {
 export default function Dashboard() {
   const { user, isLoaded } = useUser();
   const { getToken } = useAuth();
-  const [userData, setUserData] = useState<UserData | null>(null);
   const [stats, setStats] = useState<PassportStats | null>(null);
   const [recentEntries, setRecentEntries] = useState<PassportEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +52,6 @@ export default function Dashboard() {
         if (userRes.ok) {
           const data = await userRes.json();
           const u = data.user;
-          setUserData(u);
           setDisplayName(u.display_name || "");
           setHomeCity(u.home_city || "");
           setDietaryNotes(u.dietary_notes || "");
