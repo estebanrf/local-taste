@@ -34,7 +34,11 @@ client = boto3.client("rds-data", region_name=region)
 with open(migration_file) as f:
     raw = f.read()
 
-statements = [s.strip() for s in raw.split(";") if s.strip() and not s.strip().startswith("--")]
+def strip_comments(sql: str) -> str:
+    lines = [l for l in sql.splitlines() if not l.strip().startswith("--")]
+    return "\n".join(lines).strip()
+
+statements = [strip_comments(s) for s in raw.split(";") if strip_comments(s)]
 
 print(f"\nApplying {migration_file} ({len(statements)} statements)...")
 errors = 0
