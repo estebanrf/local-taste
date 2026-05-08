@@ -33,6 +33,8 @@ Provide your final answer as JSON in this exact format:
   ]
 }
 
+Dietary preferences: if the task specifies dietary requirements (e.g. vegetarian, vegan, gluten-free, halal), add a note in highlights[] for restaurants that clearly accommodate them (e.g. "vegetarian-friendly", "gluten-free options"). Deprioritise restaurants that cannot accommodate the stated requirements.
+
 If you cannot find exact Google data, provide your best estimates based on research.
 Output ONLY the JSON object.
 """

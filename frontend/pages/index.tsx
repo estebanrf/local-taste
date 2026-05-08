@@ -50,7 +50,7 @@ export default function Home() {
               Eat like a local,<br />wherever you are
             </h1>
             <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
-              Tell us the city. Our AI finds the 5 dishes you <em>must</em> try — then ranks the best places to eat them, using Google Maps ratings, review counts, and local knowledge.
+              Tell us the city. Discover the 5 dishes you <em>must</em> try — then find the best places to eat them, chosen using local reviews, reputation, and food expertise.
             </p>
             <div className="flex gap-4 justify-center">
               <SignedOut>
@@ -74,22 +74,22 @@ export default function Home() {
         {/* How it works */}
         <section className="px-8 py-20 bg-white">
           <div className="max-w-7xl mx-auto">
-            <h2 className="text-3xl font-bold text-center text-dark mb-12">How it works</h2>
+            <h2 className="text-3xl font-bold text-center text-dark mb-12">Eat like you belong there</h2>
             <div className="grid md:grid-cols-3 gap-8">
               <div className="text-center p-8">
                 <div className="text-5xl mb-4">🏙️</div>
-                <h3 className="text-xl font-semibold text-dark mb-2">1. Enter a city</h3>
-                <p className="text-gray-600">Type any city in the world. Our AI researches its food scene in real time.</p>
+                <h3 className="text-xl font-semibold text-dark mb-2">Name a city</h3>
+                <p className="text-gray-600">Anywhere in the world. We dig into its food culture — what locals actually eat, not what guidebooks say.</p>
               </div>
               <div className="text-center p-8">
                 <div className="text-5xl mb-4">🍽️</div>
-                <h3 className="text-xl font-semibold text-dark mb-2">2. Get top-5 dishes</h3>
-                <p className="text-gray-600">Receive the 5 most iconic, must-try specialities — ranked with context on why they matter.</p>
+                <h3 className="text-xl font-semibold text-dark mb-2">Discover its soul dishes</h3>
+                <p className="text-gray-600">The 5 dishes that define the city — morning through late-night — with the story behind each one.</p>
               </div>
               <div className="text-center p-8">
                 <div className="text-5xl mb-4">📍</div>
-                <h3 className="text-xl font-semibold text-dark mb-2">3. Find the best spot</h3>
-                <p className="text-gray-600">Click any dish to get 5 restaurants, AI-ranked by Google rating, review count, and local reputation.</p>
+                <h3 className="text-xl font-semibold text-dark mb-2">Find where locals go</h3>
+                <p className="text-gray-600">Each dish mapped to 5 real places — hidden gems, neighborhood favorites, and the spots worth the queue.</p>
               </div>
             </div>
           </div>
@@ -134,7 +134,7 @@ export default function Home() {
         </section>
 
         <footer className="px-8 py-6 bg-gray-900 text-gray-400 text-center text-sm">
-          <p>© 2025 Local Taste. AI-powered food discovery. Always verify opening hours before visiting.</p>
+          <p>© 2026 Local Taste. Discover the world, one dish at a time. Always verify opening hours before visiting.</p>
         </footer>
       </div>
     </>

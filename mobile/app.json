@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Local Taste",
+    "slug": "local-taste",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#7c3aed"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.localtaste.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#7c3aed"
+      },
+      "package": "com.localtaste.app"
+    },
+    "scheme": "local-taste",
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

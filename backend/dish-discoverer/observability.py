@@ -56,7 +56,7 @@ def observe():
 
         # Configure logfire to instrument OpenAI Agents SDK
         logfire.configure(
-            service_name="alex_reporter_agent",
+            service_name="localtaste_dish_discoverer",
             send_to_logfire=False,  # Don't send to Logfire cloud
         )
         logger.info("✅ Observability: Logfire configured")

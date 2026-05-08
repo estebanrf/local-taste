@@ -35,7 +35,7 @@ def taint_and_deploy_via_terraform() -> bool:
         return False
     
     # Lambda function names to taint
-    lambda_functions = ['planner', 'tagger', 'reporter', 'charter', 'retirement']
+    lambda_functions = ['dish_discoverer', 'restaurant_ranker']
     
     print("📌 Step 1: Tainting Lambda functions to force recreation...")
     print("-" * 50)
@@ -148,7 +148,6 @@ def main():
     # Define Lambda functions to check/package
     backend_dir = Path(__file__).parent
     services = [
-        ('planner', backend_dir / 'planner' / 'planner_lambda.zip'),
         ('dish-discoverer', backend_dir / 'dish-discoverer' / 'dish_discoverer_lambda.zip'),
         ('restaurant-ranker', backend_dir / 'restaurant-ranker' / 'restaurant_ranker_lambda.zip'),
     ]

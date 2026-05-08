@@ -115,7 +115,7 @@ locals {
   }
 }
 
-# ── Dish Discoverer (reporter dir) ────────────────────────────────────────────
+# ── Dish Discoverer ───────────────────────────────────────────────────────────
 
 resource "aws_lambda_function" "dish_discoverer" {
   function_name    = "lt-discoverer"
@@ -134,7 +134,7 @@ resource "aws_lambda_function" "dish_discoverer" {
   depends_on = [aws_s3_object.lambda_packages["dish-discoverer"]]
 }
 
-# ── Restaurant Ranker (charter dir) ───────────────────────────────────────────
+# ── Restaurant Ranker ─────────────────────────────────────────────────────────
 
 resource "aws_lambda_function" "restaurant_ranker" {
   function_name    = "lt-ranker"

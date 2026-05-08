@@ -72,7 +72,7 @@ export default function Layout({ children }: LayoutProps) {
         <footer className="bg-white border-t mt-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <p className="text-xs text-gray-500 text-center">
-              © 2025 Local Taste. AI-powered food discovery — always verify opening hours before visiting.
+              © 2026 Local Taste. Discover the world, one dish at a time — always verify opening hours before visiting.
             </p>
           </div>
         </footer>

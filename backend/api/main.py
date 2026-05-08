@@ -108,6 +108,14 @@ class RankRestaurantsRequest(BaseModel):
     dish_name: str = Field(description="Name of the dish")
     city: str = Field(description="City name for search context")
     country: str = Field(description="Country name for search context")
+    dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+
+
+class RankByCategoryRequest(BaseModel):
+    category: str = Field(description="Food category, e.g. 'Pizza'")
+    city: str = Field(description="City name for search context")
+    country: str = Field(description="Country name for search context")
+    dietary_preferences: Optional[List[str]] = Field(default_factory=list)
 
 
 class RankRestaurantsResponse(BaseModel):
@@ -290,6 +298,46 @@ async def rank_restaurants(request: RankRestaurantsRequest, clerk_user_id: str =
         raise
     except Exception as e:
         logger.error(f"Error in rank_restaurants: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rank-by-category", response_model=RankRestaurantsResponse)
+async def rank_by_category(request: RankByCategoryRequest, clerk_user_id: str = Depends(get_current_user_id)):
+    """
+    Trigger a restaurant ranking job for a food category (e.g. Pizza) in a city,
+    bypassing the dish discovery step.
+    """
+    try:
+        job_id = db.jobs.create_job(
+            clerk_user_id=clerk_user_id,
+            job_type="restaurant_ranking",
+            request_payload={
+                "dish_id": "",
+                "dish_name": request.category,
+                "city": request.city,
+                "country": request.country,
+                "category_mode": True,
+                "dietary_preferences": request.dietary_preferences or [],
+            },
+        )
+
+        lambda_client.invoke(
+            FunctionName=RESTAURANT_RANKER_FUNCTION,
+            InvocationType="Event",
+            Payload=json.dumps({
+                "job_id": str(job_id),
+                "dish_id": "",
+                "dish_name": request.category,
+                "city": request.city,
+                "country": request.country,
+                "category_mode": True,
+                "dietary_preferences": request.dietary_preferences or [],
+            }),
+        )
+        logger.info(f"Invoked restaurant-ranker (category mode) async: {job_id}")
+        return RankRestaurantsResponse(job_id=str(job_id), message="Category restaurant ranking started.")
+    except Exception as e:
+        logger.error(f"Error in rank_by_category: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

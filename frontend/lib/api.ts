@@ -1,35 +1,60 @@
 /**
- * API client for backend communication
+ * API client for Local Taste backend
  */
 import { showToast } from '../components/Toast';
 
-// API base URL - in production this will be the API Gateway URL
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Type definitions
 export interface User {
   clerk_user_id: string;
   display_name: string;
-  years_until_retirement: number;
-  target_retirement_income: number;
-  asset_class_targets: Record<string, number>;
-  region_targets: Record<string, number>;
+  home_city?: string;
+  dietary_notes?: string;
 }
 
-export interface Account {
+export interface City {
+  id: string;
+  name: string;
+  country: string;
+  slug: string;
+  description?: string;
+}
+
+export interface Dish {
+  id: string;
+  city_id: string;
+  name: string;
+  description: string;
+  rank: number;
+  cuisine_type?: string;
+  tags: string[];
+  in_passport?: boolean;
+}
+
+export interface Restaurant {
+  id: string;
+  dish_id: string;
+  name: string;
+  address?: string;
+  google_maps_url?: string;
+  google_rating?: number;
+  review_count?: number;
+  price_level?: string;
+  rank: number;
+  rank_rationale?: string;
+  highlights: string[];
+}
+
+export interface PassportEntry {
   id: string;
   clerk_user_id: string;
-  name: string;
-  account_type: string;
-  purpose?: string;
-  cash_balance: number;
-}
-
-export interface Position {
-  id: string;
-  account_id: string;
-  symbol: string;
-  quantity: number;
+  dish_id: string;
+  dish_name: string;
+  city_name: string;
+  country: string;
+  tasted_at?: string;
+  rating?: number;
+  notes?: string;
 }
 
 export interface Job {
@@ -37,17 +62,12 @@ export interface Job {
   clerk_user_id: string;
   job_type: string;
   status: string;
-  result?: Record<string, unknown>;
-  error?: string;
+  dishes_payload?: Record<string, unknown>;
+  restaurants_payload?: Record<string, unknown>;
+  summary_payload?: Record<string, unknown>;
+  error_message?: string;
 }
 
-export interface ApiError {
-  detail: string;
-}
-
-/**
- * Make an authenticated API request (for use with token)
- */
 export async function apiRequest<T = unknown>(
   endpoint: string,
   token: string,
@@ -64,17 +84,12 @@ export async function apiRequest<T = unknown>(
     },
   });
 
-  // Handle JWT expiry (401 Unauthorized)
   if (response.status === 401) {
     showToast('error', 'Session expired. Please sign in again.');
-    // Redirect to home page for re-authentication
-    setTimeout(() => {
-      window.location.href = '/';
-    }, 2000);
+    setTimeout(() => { window.location.href = '/'; }, 2000);
     throw new Error('Session expired');
   }
 
-  // Handle rate limiting (429 Too Many Requests)
   if (response.status === 429) {
     showToast('error', 'Too many requests. Please slow down.');
     throw new Error('Rate limited');
@@ -88,71 +103,47 @@ export async function apiRequest<T = unknown>(
   return response.json();
 }
 
-/**
- * API client factory - creates client with token
- */
 export function createApiClient(token: string) {
   return {
-    // User endpoints
     user: {
-      get: () => apiRequest<User>('/api/user', token),
-      update: (data: Partial<User>) => apiRequest<User>('/api/user', token, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
+      get: () => apiRequest<{ user: User; created: boolean }>('/api/user', token),
     },
 
-    // Account endpoints
-    accounts: {
-      list: () => apiRequest<Account[]>('/api/accounts', token),
-      create: (data: Partial<Account>) => apiRequest<Account>('/api/accounts', token, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-      update: (id: string, data: Partial<Account>) => apiRequest<Account>(`/api/accounts/${id}`, token, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-      positions: (id: string) => apiRequest<Position[]>(`/api/accounts/${id}/positions`, token),
+    cities: {
+      dishes: (cityId: string) =>
+        apiRequest<{ city: City; dishes: Dish[] }>(`/api/cities/${cityId}/dishes`, token),
     },
 
-    // Position endpoints
-    positions: {
-      create: (data: Partial<Position>) => apiRequest<Position>('/api/positions', token, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-      update: (id: string, data: Partial<Position>) => apiRequest<Position>(`/api/positions/${id}`, token, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
-      delete: (id: string) => apiRequest<void>(`/api/positions/${id}`, token, {
-        method: 'DELETE',
-      }),
+    discover: {
+      start: (city: string, country: string) =>
+        apiRequest<{ job_id: string; message: string; city_id?: string }>('/api/discover', token, {
+          method: 'POST',
+          body: JSON.stringify({ city, country }),
+        }),
     },
 
-    // Analysis endpoints
-    analysis: {
-      trigger: (data: Record<string, unknown> = {}) => apiRequest<Job>('/api/analyze', token, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
+    restaurants: {
+      rank: (dishId: string, dishName: string, city: string, country: string) =>
+        apiRequest<{ job_id: string; message: string }>('/api/rank-restaurants', token, {
+          method: 'POST',
+          body: JSON.stringify({ dish_id: dishId, dish_name: dishName, city, country }),
+        }),
+      list: (dishId: string) =>
+        apiRequest<{ dish: Dish; restaurants: Restaurant[] }>(`/api/dishes/${dishId}/restaurants`, token),
     },
 
-    // Job endpoints
+    passport: {
+      list: () => apiRequest<PassportEntry[]>('/api/passport', token),
+      add: (dishId: string, rating?: number, notes?: string) =>
+        apiRequest<PassportEntry>('/api/passport', token, {
+          method: 'POST',
+          body: JSON.stringify({ dish_id: dishId, rating, notes }),
+        }),
+      stats: () => apiRequest<Record<string, unknown>>('/api/passport/stats', token),
+    },
+
     jobs: {
       get: (id: string) => apiRequest<Job>(`/api/jobs/${id}`, token),
-      list: () => apiRequest<Job[]>('/api/jobs', token),
     },
-  };
-}
-
-/**
- * Hook for making API calls from components
- */
-export function useApiClient() {
-  // This hook can be used in components with useAuth
-  return {
-    createClient: (token: string) => createApiClient(token),
   };
 }

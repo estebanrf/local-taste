@@ -5,7 +5,7 @@ Uses Tavily to search for real restaurant data.
 
 import os
 import logging
-from typing import Any, Optional
+from typing import Any, List, Optional
 from dataclasses import dataclass
 
 from agents import function_tool, RunContextWrapper
@@ -22,6 +22,8 @@ class RestaurantRankerContext:
     city: str
     country: str
     db: Optional[Any] = None
+    category_mode: bool = False
+    dietary_preferences: Optional[List[str]] = None
 
 
 @function_tool
@@ -56,7 +58,16 @@ async def search_web(wrapper: RunContextWrapper[RestaurantRankerContext], query:
         return f"Search failed: {e}"
 
 
-def create_agent(job_id: str, dish_id: str, dish_name: str, city: str, country: str, db):
+def create_agent(
+    job_id: str,
+    dish_id: str,
+    dish_name: str,
+    city: str,
+    country: str,
+    db,
+    category_mode: bool = False,
+    dietary_preferences: Optional[List[str]] = None,
+):
     model_id = os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0")
     bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
     os.environ["AWS_REGION_NAME"] = bedrock_region
@@ -65,13 +76,21 @@ def create_agent(job_id: str, dish_id: str, dish_name: str, city: str, country: 
     context = RestaurantRankerContext(
         job_id=job_id, dish_id=dish_id, dish_name=dish_name,
         city=city, country=country, db=db,
+        category_mode=category_mode,
+        dietary_preferences=dietary_preferences or [],
     )
 
-    task = f"""Find and rank the top 5 restaurants for {dish_name} in {city}, {country}.
+    if category_mode:
+        search_hint = f'"{dish_name} restaurants {city} {country} best rated"'
+        task = f'Find and rank the top 5 {dish_name} restaurants in {city}, {country}.\n\nSearch: {search_hint}\n'
+    else:
+        search_hint = f'"{dish_name} {city} {country} Google Maps rating reviews"'
+        task = f'Find and rank the top 5 restaurants for {dish_name} in {city}, {country}.\n\nSearch: {search_hint}\n'
 
-Use search_web to search for:
-1. "{dish_name} {city} {country} Google Maps rating reviews"
+    if dietary_preferences:
+        prefs = ", ".join(dietary_preferences)
+        task += f'\nUser dietary requirements: {prefs}. Prioritise restaurants that clearly accommodate these and note it in highlights[].'
 
-Then compile your final JSON with exactly 5 restaurants ranked 1-5 stars scale, using real data from the search results. Be concise, just the restaurants names plus each score."""
+    task += '\n\nCompile your final JSON with exactly 5 restaurants. Use real data from search results.'
 
     return model, [search_web], task, context

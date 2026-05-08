@@ -26,7 +26,7 @@ logger.setLevel(logging.INFO)
 db = Database()
 
 
-def _save_ranking_results(job_id: str, result_text: str, dish_id: str) -> None:
+def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_mode: bool = False) -> None:
     try:
         raw = result_text.strip()
         start = raw.find("{")
@@ -35,26 +35,27 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str) -> None:
             raise ValueError("No JSON found in agent response")
         data = json.loads(raw[start:end])
 
-        db.restaurants.delete_by_dish(dish_id)
-
         restaurants = data.get("restaurants", [])
-        for r in restaurants[:5]:
-            rest = RestaurantCreate(
-                dish_id=dish_id,
-                name=r["name"],
-                address=r.get("address"),
-                google_maps_url=r.get("google_maps_url"),
-                google_rating=r.get("google_rating"),
-                review_count=r.get("review_count"),
-                price_level=r.get("price_level"),
-                rank=r.get("rank", 1),
-                rank_rationale=r.get("rank_rationale", ""),
-                highlights=r.get("highlights", []),
-            )
-            db.restaurants.create_restaurant(rest)
+
+        if not category_mode and dish_id:
+            db.restaurants.delete_by_dish(dish_id)
+            for r in restaurants[:5]:
+                rest = RestaurantCreate(
+                    dish_id=dish_id,
+                    name=r["name"],
+                    address=r.get("address"),
+                    google_maps_url=r.get("google_maps_url"),
+                    google_rating=r.get("google_rating"),
+                    review_count=r.get("review_count"),
+                    price_level=r.get("price_level"),
+                    rank=r.get("rank", 1),
+                    rank_rationale=r.get("rank_rationale", ""),
+                    highlights=r.get("highlights", []),
+                )
+                db.restaurants.create_restaurant(rest)
 
         db.jobs.update_restaurants(job_id, {"dish_id": dish_id, "restaurants": restaurants})
-        logger.info(f"RestaurantRanker: saved {len(restaurants)} restaurants for dish {dish_id}")
+        logger.info(f"RestaurantRanker: saved {len(restaurants)} restaurants (category_mode={category_mode})")
 
     except Exception as e:
         logger.error(f"RestaurantRanker: failed to save: {e}", exc_info=True)
@@ -66,13 +67,19 @@ async def run_restaurant_ranker(job_id: str) -> None:
     if not job:
         raise ValueError(f"Job {job_id} not found")
 
-    payload   = job.get("request_payload", {})
-    dish_id   = payload.get("dish_id", "")
-    dish_name = payload.get("dish_name", "")
-    city      = payload.get("city", "")
-    country   = payload.get("country", "")
+    payload              = job.get("request_payload", {})
+    dish_id              = payload.get("dish_id", "")
+    dish_name            = payload.get("dish_name", "")
+    city                 = payload.get("city", "")
+    country              = payload.get("country", "")
+    category_mode        = payload.get("category_mode", False)
+    dietary_preferences  = payload.get("dietary_preferences") or []
 
-    model, tools, task, context = create_agent(job_id, dish_id, dish_name, city, country, db)
+    model, tools, task, context = create_agent(
+        job_id, dish_id, dish_name, city, country, db,
+        category_mode=category_mode,
+        dietary_preferences=dietary_preferences,
+    )
 
     with trace("Restaurant Ranker"):
         agent = Agent[RestaurantRankerContext](
@@ -83,7 +90,12 @@ async def run_restaurant_ranker(job_id: str) -> None:
         )
         result = await Runner.run(agent, input=task, context=context, max_turns=10)
 
-    _save_ranking_results(job_id=job_id, result_text=result.final_output, dish_id=dish_id)
+    _save_ranking_results(
+        job_id=job_id,
+        result_text=result.final_output,
+        dish_id=dish_id,
+        category_mode=category_mode,
+    )
 
 
 def lambda_handler(event, context):

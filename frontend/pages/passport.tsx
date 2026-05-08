@@ -28,6 +28,17 @@ interface Stats {
   avg_rating: number | null;
 }
 
+const DIETARY_OPTIONS = [
+  { id: "vegetarian",   label: "Vegetarian",          emoji: "🥦" },
+  { id: "vegan",        label: "Vegan",                emoji: "🌱" },
+  { id: "gluten-free",  label: "Celiac / Gluten-free", emoji: "🌾" },
+  { id: "dairy-free",   label: "Dairy-free",           emoji: "🥛" },
+  { id: "halal",        label: "Halal",                emoji: "☪️" },
+  { id: "kosher",       label: "Kosher",               emoji: "✡️" },
+  { id: "nut-free",     label: "Nut-free",             emoji: "🥜" },
+  { id: "no-pork",      label: "No pork",              emoji: "🐷" },
+];
+
 export default function Passport() {
   const { getToken } = useAuth();
   const [entries, setEntries] = useState<PassportEntry[]>([]);
@@ -37,17 +48,24 @@ export default function Passport() {
   const [editRating, setEditRating] = useState<number>(0);
   const [editNotes, setEditNotes] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
 
   const load = async () => {
     try {
       const token = await getToken();
-      const res = await fetch(`${API_URL}/api/passport`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const [passportRes, userRes] = await Promise.all([
+        fetch(`${API_URL}/api/passport`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/user`,     { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (passportRes.ok) {
+        const data = await passportRes.json();
         setEntries(data.entries || []);
         setStats(data.stats);
+      }
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        const raw = userData.user?.dietary_notes;
+        try { setDietaryPrefs(raw ? JSON.parse(raw) : []); } catch { setDietaryPrefs([]); }
       }
     } catch { /* silent */ } finally {
       setLoading(false);
@@ -55,6 +73,24 @@ export default function Passport() {
   };
 
   useEffect(() => { load(); }, []);
+
+  const toggleDietaryPref = async (id: string) => {
+    const next = dietaryPrefs.includes(id)
+      ? dietaryPrefs.filter(p => p !== id)
+      : [...dietaryPrefs, id];
+    setDietaryPrefs(next);
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/user`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ dietary_notes: JSON.stringify(next) }),
+      });
+      showToast("success", "Preferences saved");
+    } catch {
+      showToast("error", "Failed to save preferences.");
+    }
+  };
 
   const startEdit = (entry: PassportEntry) => {
     setEditingId(entry.id);
@@ -158,6 +194,35 @@ export default function Passport() {
               </div>
             </div>
           )}
+
+          {/* Dietary preferences */}
+          <div className="bg-white rounded-xl shadow p-6 mb-8">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-dark">Your dietary preferences</h2>
+              <p className="text-sm text-gray-500 mt-0.5">We'll use these to surface better restaurant options when you search.</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {DIETARY_OPTIONS.map(opt => {
+                const active = dietaryPrefs.includes(opt.id);
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => toggleDietaryPref(opt.id)}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                      active
+                        ? "border-primary bg-purple-50 text-primary"
+                        : "border-gray-200 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    <span className="text-lg">{opt.emoji}</span>
+                    <span>{opt.label}</span>
+                    {active && <span className="ml-auto text-primary text-xs">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {loading ? (
             <div className="text-center py-16 text-gray-400">Loading your passport…</div>
@@ -263,6 +328,8 @@ export default function Passport() {
 
         {confirmDeleteId && (
           <ConfirmModal
+            isOpen={true}
+            title="Remove from Passport"
             message="Remove this dish from your passport?"
             onConfirm={() => handleDelete(confirmDeleteId)}
             onCancel={() => setConfirmDeleteId(null)}

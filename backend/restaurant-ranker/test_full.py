@@ -1,111 +1,64 @@
 #!/usr/bin/env python3
 """
-Full test for Charter agent via Lambda
+Full integration test for Restaurant Ranker via Lambda invocation.
+Requires the lt-ranker Lambda to be deployed and a dish to exist in the DB.
 """
 
 import json
-import boto3
 import time
+import boto3
 from dotenv import load_dotenv
-
-from src import Database
-from src.schemas import JobCreate
 
 load_dotenv(override=True)
 
+from src import Database
 
-def test_charter_lambda():
-    """Test the Charter agent via Lambda invocation"""
 
+def test_restaurant_ranker_lambda():
     db = Database()
     lambda_client = boto3.client("lambda")
 
-    # Create test job
-    test_user_id = "test_user_001"
+    city = db.cities.find_by_slug("tokyo-japan")
+    if not city:
+        print("No city found. Run the dish-discoverer first.")
+        return
 
-    job_create = JobCreate(
-        clerk_user_id=test_user_id,
-        job_type="portfolio_analysis",
-        request_payload={"analysis_type": "test", "test": True},
+    dishes = db.dishes.find_by_city(city["id"])
+    if not dishes:
+        print("No dishes found. Run the dish-discoverer first.")
+        return
+
+    dish = dishes[0]
+    print(f"Testing with dish: {dish['name']}")
+
+    job_id = db.jobs.create_job(
+        clerk_user_id="test_user_001",
+        job_type="restaurant_ranking",
+        request_payload={
+            "dish_id": dish["id"],
+            "dish_name": dish["name"],
+            "city": city["name"],
+            "country": city["country"],
+        },
     )
-    job_id = db.jobs.create(job_create.model_dump())
+    print(f"Created job: {job_id}")
 
-    # Load portfolio data for the test
-    user = db.users.find_by_clerk_id(test_user_id)
-    accounts = db.accounts.find_by_user(test_user_id)
+    response = lambda_client.invoke(
+        FunctionName="lt-ranker",
+        InvocationType="RequestResponse",
+        Payload=json.dumps({"job_id": str(job_id)}),
+    )
 
-    portfolio_data = {
-        "user_id": test_user_id,
-        "job_id": job_id,
-        "years_until_retirement": user.get("years_until_retirement", 30),
-        "accounts": [],
-    }
+    result = json.loads(response["Payload"].read())
+    print(f"Lambda response: {json.dumps(result, indent=2)}")
 
-    for account in accounts:
-        positions = db.positions.find_by_account(account["id"])
-        account_data = {
-            "id": account["id"],
-            "name": account["account_name"],
-            "cash_balance": float(account.get("cash_balance", 0)),
-            "positions": [],
-        }
-
-        for position in positions:
-            instrument = db.instruments.find_by_symbol(position["symbol"])
-            if instrument:
-                account_data["positions"].append(
-                    {
-                        "symbol": position["symbol"],
-                        "quantity": float(position["quantity"]),
-                        "instrument": instrument,
-                    }
-                )
-
-        portfolio_data["accounts"].append(account_data)
-
-    print(f"Testing Charter Lambda with job {job_id}")
-    print("=" * 60)
-
-    # Invoke Lambda
-    try:
-        response = lambda_client.invoke(
-            FunctionName="alex-charter",
-            InvocationType="RequestResponse",
-            Payload=json.dumps({"job_id": job_id, "portfolio_data": portfolio_data}),
-        )
-
-        result = json.loads(response["Payload"].read())
-        print(f"Lambda Response: {json.dumps(result, indent=2)}")
-
-        # Check database for results
-        time.sleep(2)  # Give it a moment
-        job = db.jobs.find_by_id(job_id)
-
-        if job and job.get("charts_payload"):
-            print(f"\n📊 Charts Created ({len(job['charts_payload'])} total):")
-            print("=" * 50)
-            for chart_key, chart_data in job["charts_payload"].items():
-                print(f"\n🎯 Chart: {chart_key}")
-                print(f"   Title: {chart_data.get('title', 'N/A')}")
-                print(f"   Type: {chart_data.get('type', 'N/A')}")
-                print(f"   Description: {chart_data.get('description', 'N/A')}")
-
-                data_points = chart_data.get("data", [])
-                print(f"   Data Points ({len(data_points)}):")
-                for i, point in enumerate(data_points):
-                    name = point.get("name", "N/A")
-                    value = point.get("value", 0)
-                    color = point.get("color", "N/A")
-                    print(f"     {i+1}. {name}: ${value:,.2f} {color}")
-
-        else:
-            print("\n❌ No charts found in database")
-
-    except Exception as e:
-        print(f"Error invoking Lambda: {e}")
-
-    print("=" * 60)
+    time.sleep(2)
+    job = db.jobs.find_by_id(str(job_id))
+    restaurants = job.get("restaurants_payload", {}).get("restaurants", [])
+    print(f"\nRestaurants saved: {len(restaurants)}")
+    for r in restaurants:
+        print(f"  {r.get('rank')}. {r.get('name')} — ★{r.get('google_rating', 'N/A')}")
 
 
 if __name__ == "__main__":
-    test_charter_lambda()
+    test_restaurant_ranker_lambda()

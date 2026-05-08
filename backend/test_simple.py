@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Test all agents by running their individual test_simple.py files in their own directories.
-This ensures each agent runs with its own dependencies and environment.
+Run test_simple.py for all active agents.
 """
 
 import os
@@ -9,100 +8,47 @@ import subprocess
 import sys
 from pathlib import Path
 
-def run_command(cmd, cwd):
-    """Run a command and capture output."""
-    print(f"Running in {cwd}: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
-    return result.returncode == 0, result.stdout, result.stderr
 
-def test_agent(agent_name, test_file="test_simple.py"):
-    """Test an individual agent in its directory."""
+def test_agent(agent_name):
     backend_dir = Path(__file__).parent
     agent_dir = backend_dir / agent_name
-    
+    test_path = agent_dir / "test_simple.py"
+
     if not agent_dir.exists():
-        print(f"  ❌ {agent_name}: Directory not found")
-        return False
-    
-    test_path = agent_dir / test_file
+        print(f"  {agent_name}: directory not found, skipping")
+        return True
+
     if not test_path.exists():
-        print(f"  ⚠️  {agent_name}: No {test_file} found, skipping")
-        return True  # Not a failure, just skip
-    
-    # Set environment for mocked lambdas
-    env = os.environ.copy()
-    env['MOCK_LAMBDAS'] = 'true'
-    
-    # Run the test with uv
-    success, stdout, stderr = run_command(
-        ['uv', 'run', test_file],
-        cwd=str(agent_dir)
+        print(f"  {agent_name}: no test_simple.py, skipping")
+        return True
+
+    result = subprocess.run(
+        ["uv", "run", "test_simple.py"],
+        cwd=str(agent_dir),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "MOCK_LAMBDAS": "true"},
     )
-    
-    if success:
-        print(f"  ✅ {agent_name}: Test passed")
-        if stdout and "Status Code: 200" in stdout:
-            # Extract key info from successful runs
-            for line in stdout.split('\n'):
-                if 'Tagged:' in line or 'Success:' in line or 'Message:' in line:
-                    print(f"     {line.strip()}")
+
+    if result.returncode == 0:
+        print(f"  {agent_name}: passed")
+        return True
     else:
-        print(f"  ❌ {agent_name}: Test failed")
-        if stderr:
-            # Show first error line
-            error_lines = [l for l in stderr.split('\n') if l.strip()]
-            if error_lines:
-                print(f"     Error: {error_lines[0][:100]}")
-    
-    return success
+        print(f"  {agent_name}: FAILED")
+        if result.stderr:
+            print(f"    {result.stderr.splitlines()[0][:120]}")
+        return False
+
 
 def main():
-    """Run all agent tests."""
-    print("="*60)
-    print("TESTING ALL AGENTS")
-    print("Running individual test_simple.py in each agent directory")
-    print("="*60)
-    
-    # List of agents to test
-    agents = [
-        'tagger',
-        'reporter', 
-        'charter',
-        'retirement',
-        'planner'
-    ]
-    
-    results = {}
-    
-    for agent in agents:
-        print(f"\n{agent.upper()} Agent:")
-        results[agent] = test_agent(agent)
-    
-    # Summary
-    print("\n" + "="*60)
-    print("TEST SUMMARY")
-    print("="*60)
-    
-    passed = sum(1 for r in results.values() if r)
-    failed = sum(1 for r in results.values() if not r)
-    
+    agents = ["dish-discoverer", "restaurant-ranker"]
+    print("=" * 50)
+    results = {a: test_agent(a) for a in agents}
+    print("=" * 50)
+    passed = sum(results.values())
     print(f"Passed: {passed}/{len(agents)}")
-    print(f"Failed: {failed}/{len(agents)}")
-    
-    if failed > 0:
-        print("\nFailed agents:")
-        for agent, success in results.items():
-            if not success:
-                print(f"  - {agent}")
-    
-    print("="*60)
-    
-    if failed > 0:
-        print("\n⚠️  SOME TESTS FAILED")
-        sys.exit(1)
-    else:
-        print("\n✅ ALL TESTS PASSED!")
-        sys.exit(0)
+    sys.exit(0 if passed == len(agents) else 1)
+
 
 if __name__ == "__main__":
     main()

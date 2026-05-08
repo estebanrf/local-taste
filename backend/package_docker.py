@@ -55,7 +55,7 @@ def main():
     print("PACKAGING ALL LAMBDA FUNCTIONS")
     print("=" * 60)
 
-    agents = ["dish-discoverer", "restaurant-ranker", "planner"]
+    agents = ["dish-discoverer", "restaurant-ranker"]
     results = {}
 
     for agent in agents:
