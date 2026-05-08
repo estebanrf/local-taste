@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 interface MapItem {
   id: string;
@@ -25,27 +25,21 @@ interface Props {
   selectedItem: MapItem | null;
 }
 
-function makeIcon(leaflet: typeof L, color: string, size: number) {
-  return leaflet.divIcon({
-    className: "",
-    html: `<div style="width:${size}px;height:${size}px;background:${color};border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -(size / 2 + 4)],
-  });
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LeafletMap = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LeafletMarker = any;
 
 export default function ItineraryMap({ items, onPinClick, selectedItem }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.Marker[]>([]);
+  const mapRef = useRef<LeafletMap>(null);
+  const markersRef = useRef<LeafletMarker[]>([]);
 
-  // Initialise map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    let map: LeafletMap;
     import("leaflet").then((L) => {
-      import("leaflet/dist/leaflet.css" as never);
-      const map = L.map(containerRef.current!, { scrollWheelZoom: false }).setView([20, 10], 2);
+      map = L.map(containerRef.current!, { scrollWheelZoom: false }).setView([20, 10], 2);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map);
@@ -55,15 +49,13 @@ export default function ItineraryMap({ items, onPinClick, selectedItem }: Props)
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update markers whenever items or selectedItem changes
   useEffect(() => {
     if (!mapRef.current) return;
     import("leaflet").then((L) => {
-      const map = mapRef.current!;
-      markersRef.current.forEach(m => m.remove());
+      const map = mapRef.current;
+      markersRef.current.forEach((m: LeafletMarker) => m.remove());
       markersRef.current = [];
 
       const pinned = items.filter(i => i.latitude !== null && i.longitude !== null);
@@ -74,7 +66,15 @@ export default function ItineraryMap({ items, onPinClick, selectedItem }: Props)
         const color = isSelected ? "#7c3aed" : eaten ? "#22c55e" : "#f59e0b";
         const size = isSelected ? 28 : 22;
 
-        const marker = L.marker([item.latitude!, item.longitude!], { icon: makeIcon(L, color, size) })
+        const icon = L.divIcon({
+          className: "",
+          html: `<div style="width:${size}px;height:${size}px;background:${color};border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+          popupAnchor: [0, -(size / 2 + 4)],
+        });
+
+        const marker = L.marker([item.latitude as number, item.longitude as number], { icon })
           .bindPopup(`
             <div style="min-width:140px">
               <p style="font-weight:600;margin-bottom:2px">${item.dish_name}</p>
@@ -88,14 +88,13 @@ export default function ItineraryMap({ items, onPinClick, selectedItem }: Props)
       });
 
       if (pinned.length === 1) {
-        map.flyTo([pinned[0].latitude!, pinned[0].longitude!], 13, { duration: 0.8 });
+        map.flyTo([pinned[0].latitude as number, pinned[0].longitude as number], 13, { duration: 0.8 });
       } else if (pinned.length > 1) {
-        const bounds = L.latLngBounds(pinned.map(i => [i.latitude!, i.longitude!] as [number, number]));
+        const bounds = L.latLngBounds(pinned.map((i: MapItem) => [i.latitude as number, i.longitude as number]));
         map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8 });
       }
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, selectedItem]);
+  }, [items, selectedItem, onPinClick]);
 
   return (
     <div style={{ position: "relative", height: "100%", width: "100%" }}>
