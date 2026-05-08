@@ -81,13 +81,11 @@ export default function Explore() {
   const [customPrefs, setCustomPrefs] = useState<string[]>([]);
   const [itineraryDishIds, setItineraryDishIds] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<Stage>("idle");
-  const [_jobId, setJobId] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [city, setCity] = useState<City | null>(null);
   const [dishes, setDishes] = useState<Dish[]>([]);
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [_restaurantJobId, setRestaurantJobId] = useState<string | null>(null);
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
 
@@ -177,7 +175,6 @@ export default function Explore() {
         });
         if (!res.ok) throw new Error("Failed to start category search");
         const data = await res.json();
-        setRestaurantJobId(data.job_id);
         pollJob(data.job_id, async (job) => {
           const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
           const rList = (rPayload.restaurants as Restaurant[]) || [];
@@ -207,8 +204,6 @@ export default function Explore() {
       });
       if (!res.ok) throw new Error("Failed to start discovery");
       const data = await res.json();
-      setJobId(data.job_id);
-
       pollJob(data.job_id, async (job) => {
         const dishesPayload = (job.dishes_payload as Record<string, unknown>) || {};
         const cityId = (job.summary_payload as Record<string, unknown> | undefined)?.city_id as string || (dishesPayload?.city_id as string);
@@ -252,8 +247,6 @@ export default function Explore() {
       });
       if (!res.ok) throw new Error("Failed to start restaurant search");
       const data = await res.json();
-      setRestaurantJobId(data.job_id);
-
       pollJob(data.job_id, async (job) => {
         const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
         const rList = (rPayload.restaurants as Restaurant[]) || [];
@@ -312,12 +305,6 @@ export default function Explore() {
     }
   };
 
-  const rankColor = (rank: number) => {
-    if (rank === 1) return "bg-violet-400 text-white";
-    if (rank === 2) return "bg-gray-300 text-gray-700";
-    if (rank === 3) return "bg-purple-300 text-white";
-    return "bg-gray-100 text-gray-600";
-  };
 
   const getMealMoment = (tags: string[]): { emoji: string; label: string } | null => {
     const t = tags.map(s => s.toLowerCase()).join(" ");

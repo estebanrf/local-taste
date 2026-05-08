@@ -6,8 +6,8 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true
   },
-  // Disable automatic trailing slash redirect for API routes
   trailingSlash: false,
+  transpilePackages: ["react-leaflet", "leaflet"],
 };
 
 export default nextConfig;
