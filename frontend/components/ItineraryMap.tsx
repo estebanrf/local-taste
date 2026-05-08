@@ -1,7 +1,5 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useRef } from "react";
+import type L from "leaflet";
 
 interface MapItem {
   id: string;
@@ -27,8 +25,8 @@ interface Props {
   selectedItem: MapItem | null;
 }
 
-function makeIcon(color: string, size: number) {
-  return L.divIcon({
+function makeIcon(leaflet: typeof L, color: string, size: number) {
+  return leaflet.divIcon({
     className: "",
     html: `<div style="width:${size}px;height:${size}px;background:${color};border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>`,
     iconSize: [size, size],
@@ -37,72 +35,80 @@ function makeIcon(color: string, size: number) {
   });
 }
 
-function MapFlyTo({ items }: { items: MapItem[] }) {
-  const map = useMap();
-  useEffect(() => {
-    const pinned = items.filter(i => i.latitude !== null && i.longitude !== null);
-    if (pinned.length === 0) return;
-    if (pinned.length === 1) {
-      map.flyTo([pinned[0].latitude!, pinned[0].longitude!], 13, { duration: 0.8 });
-    } else {
-      const bounds = L.latLngBounds(pinned.map(i => [i.latitude!, i.longitude!] as [number, number]));
-      map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8 });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length]);
-  return null;
-}
-
 export default function ItineraryMap({ items, onPinClick, selectedItem }: Props) {
-  const pinned = items.filter(i => i.latitude !== null && i.longitude !== null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
 
-  return (
-    <MapContainer
-      center={[20, 10]}
-      zoom={2}
-      style={{ height: "100%", width: "100%" }}
-      scrollWheelZoom={false}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <MapFlyTo items={items} />
-      {pinned.map(item => {
+  // Initialise map once
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+    import("leaflet").then((L) => {
+      import("leaflet/dist/leaflet.css" as never);
+      const map = L.map(containerRef.current!, { scrollWheelZoom: false }).setView([20, 10], 2);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      }).addTo(map);
+      mapRef.current = map;
+    });
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update markers whenever items or selectedItem changes
+  useEffect(() => {
+    if (!mapRef.current) return;
+    import("leaflet").then((L) => {
+      const map = mapRef.current!;
+      markersRef.current.forEach(m => m.remove());
+      markersRef.current = [];
+
+      const pinned = items.filter(i => i.latitude !== null && i.longitude !== null);
+
+      pinned.forEach(item => {
         const isSelected = selectedItem?.id === item.id;
         const eaten = item.eaten_count > 0;
         const color = isSelected ? "#7c3aed" : eaten ? "#22c55e" : "#f59e0b";
         const size = isSelected ? 28 : 22;
-        return (
-          <Marker
-            key={item.id}
-            position={[item.latitude!, item.longitude!]}
-            icon={makeIcon(color, size)}
-            eventHandlers={{ click: () => onPinClick(item) }}
-          >
-            <Popup>
-              <div style={{ minWidth: 140 }}>
-                <p style={{ fontWeight: 600, marginBottom: 2 }}>{item.dish_name}</p>
-                <p style={{ color: "#6b7280", fontSize: 12 }}>{item.city_name}, {item.country}</p>
-                {item.eaten_count > 0 && (
-                  <p style={{ color: "#16a34a", fontSize: 12, marginTop: 4 }}>✓ Tried {item.eaten_count}×</p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        );
-      })}
-      {pinned.length === 0 && items.length > 0 && (
-        <div
-          style={{
-            position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)",
-            background: "rgba(255,255,255,0.9)", borderRadius: 6, padding: "4px 10px",
-            fontSize: 12, color: "#6b7280", zIndex: 1000, pointerEvents: "none",
-          }}
-        >
+
+        const marker = L.marker([item.latitude!, item.longitude!], { icon: makeIcon(L, color, size) })
+          .bindPopup(`
+            <div style="min-width:140px">
+              <p style="font-weight:600;margin-bottom:2px">${item.dish_name}</p>
+              <p style="color:#6b7280;font-size:12px">${item.city_name}, ${item.country}</p>
+              ${item.eaten_count > 0 ? `<p style="color:#16a34a;font-size:12px;margin-top:4px">✓ Tried ${item.eaten_count}×</p>` : ""}
+            </div>
+          `)
+          .on("click", () => onPinClick(item))
+          .addTo(map);
+        markersRef.current.push(marker);
+      });
+
+      if (pinned.length === 1) {
+        map.flyTo([pinned[0].latitude!, pinned[0].longitude!], 13, { duration: 0.8 });
+      } else if (pinned.length > 1) {
+        const bounds = L.latLngBounds(pinned.map(i => [i.latitude!, i.longitude!] as [number, number]));
+        map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8 });
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, selectedItem]);
+
+  return (
+    <div style={{ position: "relative", height: "100%", width: "100%" }}>
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+      {items.filter(i => i.latitude !== null).length === 0 && items.length > 0 && (
+        <div style={{
+          position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(255,255,255,0.9)", borderRadius: 6, padding: "4px 10px",
+          fontSize: 12, color: "#6b7280", zIndex: 1000, pointerEvents: "none",
+        }}>
           Pins appear after searching for restaurants
         </div>
       )}
-    </MapContainer>
+    </div>
   );
 }

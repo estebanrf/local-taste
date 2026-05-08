@@ -7,7 +7,6 @@ const nextConfig: NextConfig = {
     unoptimized: true
   },
   trailingSlash: false,
-  transpilePackages: ["react-leaflet", "leaflet"],
 };
 
 export default nextConfig;
