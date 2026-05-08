@@ -6,6 +6,7 @@ import { showToast } from "../components/Toast";
 import ConfirmModal from "../components/ConfirmModal";
 import Link from "next/link";
 import Head from "next/head";
+import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
 
 interface PassportEntry {
   id: string;
@@ -28,16 +29,6 @@ interface Stats {
   avg_rating: number | null;
 }
 
-const DIETARY_OPTIONS = [
-  { id: "vegetarian",   label: "Vegetarian",          emoji: "🥦" },
-  { id: "vegan",        label: "Vegan",                emoji: "🌱" },
-  { id: "gluten-free",  label: "Celiac / Gluten-free", emoji: "🌾" },
-  { id: "dairy-free",   label: "Dairy-free",           emoji: "🥛" },
-  { id: "halal",        label: "Halal",                emoji: "☪️" },
-  { id: "kosher",       label: "Kosher",               emoji: "✡️" },
-  { id: "nut-free",     label: "Nut-free",             emoji: "🥜" },
-  { id: "no-pork",      label: "No pork",              emoji: "🐷" },
-];
 
 export default function Passport() {
   const { getToken } = useAuth();
@@ -65,8 +56,7 @@ export default function Passport() {
       }
       if (userRes.ok) {
         const userData = await userRes.json();
-        const raw = userData.user?.dietary_notes;
-        try { setDietaryPrefs(raw ? JSON.parse(raw) : []); } catch { setDietaryPrefs([]); }
+        setDietaryPrefs(parseDietaryPrefs(userData.user?.dietary_notes));
       }
     } catch { /* silent */ } finally {
       setLoading(false);
@@ -177,7 +167,7 @@ export default function Passport() {
 
           {/* Stats */}
           {stats && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-3 gap-4 mb-8">
               <div className="bg-white rounded-lg shadow p-5 text-center">
                 <p className="text-3xl font-bold text-primary">{stats.total_dishes}</p>
                 <p className="text-sm text-gray-500">Dishes Tried</p>
@@ -189,12 +179,6 @@ export default function Passport() {
               <div className="bg-white rounded-lg shadow p-5 text-center">
                 <p className="text-3xl font-bold text-dark">{stats.cuisine_types}</p>
                 <p className="text-sm text-gray-500">Cuisine Types</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-5 text-center">
-                <p className="text-3xl font-bold text-accent">
-                  {stats.avg_rating ? `${Number(stats.avg_rating).toFixed(1)}★` : "—"}
-                </p>
-                <p className="text-sm text-gray-500">Avg. Rating</p>
               </div>
             </div>
           )}

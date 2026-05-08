@@ -78,15 +78,16 @@ async def run_dish_discoverer(job_id: str) -> None:
     if not job:
         raise ValueError(f"Job {job_id} not found")
 
-    payload  = job.get("request_payload", {})
-    city     = payload.get("city", "")
-    country  = payload.get("country", "")
-    slug     = payload.get("slug", f"{city.lower()}-{country.lower()}")
-    city_id  = payload.get("city_id")
+    payload             = job.get("request_payload", {})
+    city                = payload.get("city", "")
+    country             = payload.get("country", "")
+    slug                = payload.get("slug", f"{city.lower()}-{country.lower()}")
+    city_id             = payload.get("city_id")
+    dietary_preferences = payload.get("dietary_preferences", [])
 
-    logger.info(f"DishDiscoverer: job_id={job_id} city={city} country={country} city_id={city_id}")
+    logger.info(f"DishDiscoverer: job_id={job_id} city={city} country={country} city_id={city_id} dietary={dietary_preferences}")
 
-    model, tools, task, context = create_agent(job_id, city, country, city_id, db)
+    model, tools, task, context = create_agent(job_id, city, country, city_id, db, dietary_preferences)
 
     logger.info(f"DishDiscoverer: starting agent run")
     with trace("Dish Discoverer"):

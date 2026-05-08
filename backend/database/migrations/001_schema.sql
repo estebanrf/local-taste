@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS restaurants (
     rank            INTEGER NOT NULL,        -- 1-5  (AI-computed composite rank)
     rank_rationale  TEXT,                    -- why this rank
     highlights      JSONB DEFAULT '[]',      -- ["authentic","queue worth it"]
+    latitude        DOUBLE PRECISION,        -- extracted from Maps URL or geocoded
+    longitude       DOUBLE PRECISION,
     last_updated_at TIMESTAMP,
 
     created_at      TIMESTAMP DEFAULT NOW(),

@@ -7,7 +7,7 @@ RESTAURANT_RANKER_INSTRUCTIONS = """You are the Restaurant Ranker — a local fo
 Your task:
 1. Use search_web to find restaurants serving this dish — search for "[dish] best restaurants [city]" and "[dish] [city] Google Maps rating"
 2. Find EXACTLY 5 restaurants using the real search results
-3. For each restaurant, extract: name, address, Google Maps URL (if found), Google rating, review count, price level, and rank 1-5
+3. For each restaurant, extract: name, address, Google Maps URL (if found), Google rating, review count, price level, rank 1-5, and latitude/longitude coordinates (extract from the Maps URL @lat,lng pattern, or from your knowledge of the restaurant's location)
 
 Ranking criteria (composite score):
 - Google Maps star rating (40% weight)
@@ -28,7 +28,9 @@ Provide your final answer as JSON in this exact format:
       "price_level": "$$",
       "rank": 1,
       "rank_rationale": "...",
-      "highlights": ["authentic", "queue worth it"]
+      "highlights": ["authentic", "queue worth it"],
+      "latitude": 48.8566,
+      "longitude": 2.3522
     }
   ]
 }

@@ -6,6 +6,7 @@ import { Skeleton, SkeletonCard } from "../components/Skeleton";
 import { showToast } from "../components/Toast";
 import Link from "next/link";
 import Head from "next/head";
+import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
 
 interface PassportStats {
   total_dishes: number;
@@ -35,7 +36,7 @@ export default function Dashboard() {
 
   const [displayName, setDisplayName] = useState("");
   const [homeCity, setHomeCity] = useState("");
-  const [dietaryNotes, setDietaryNotes] = useState("");
+  const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -54,7 +55,7 @@ export default function Dashboard() {
           const u = data.user;
           setDisplayName(u.display_name || "");
           setHomeCity(u.home_city || "");
-          setDietaryNotes(u.dietary_notes || "");
+          setDietaryPrefs(parseDietaryPrefs(u.dietary_notes));
         }
 
         if (passportRes.ok) {
@@ -82,7 +83,7 @@ export default function Dashboard() {
       const res = await fetch(`${API_URL}/api/user`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: displayName.trim(), home_city: homeCity || null, dietary_notes: dietaryNotes || null }),
+        body: JSON.stringify({ display_name: displayName.trim(), home_city: homeCity || null, dietary_notes: JSON.stringify(dietaryPrefs) }),
       });
       if (!res.ok) throw new Error("Failed to save");
       showToast("success", "Profile saved!");
@@ -118,7 +119,7 @@ export default function Dashboard() {
           ) : (
             <>
               {/* Stats cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="grid grid-cols-3 gap-4 mb-8">
                 <div className="bg-white rounded-lg shadow p-6 text-center">
                   <p className="text-sm text-gray-500 mb-1">Dishes Tried</p>
                   <p className="text-3xl font-bold text-primary">{stats?.total_dishes ?? 0}</p>
@@ -130,12 +131,6 @@ export default function Dashboard() {
                 <div className="bg-white rounded-lg shadow p-6 text-center">
                   <p className="text-sm text-gray-500 mb-1">Cuisine Types</p>
                   <p className="text-3xl font-bold text-dark">{stats?.cuisine_types ?? 0}</p>
-                </div>
-                <div className="bg-white rounded-lg shadow p-6 text-center">
-                  <p className="text-sm text-gray-500 mb-1">Avg. Rating</p>
-                  <p className="text-3xl font-bold text-accent">
-                    {stats?.avg_rating ? Number(stats.avg_rating).toFixed(1) : "—"}
-                  </p>
                 </div>
               </div>
 
@@ -204,16 +199,32 @@ export default function Dashboard() {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Dietary notes <span className="text-gray-400 font-normal">(optional)</span>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Dietary preferences <span className="text-gray-400 font-normal">(optional)</span>
                     </label>
-                    <textarea
-                      value={dietaryNotes}
-                      onChange={(e) => setDietaryNotes(e.target.value)}
-                      rows={2}
-                      placeholder="e.g. vegetarian, nut allergy, halal..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {DIETARY_OPTIONS.map(opt => {
+                        const active = dietaryPrefs.includes(opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setDietaryPrefs(prev =>
+                              prev.includes(opt.id) ? prev.filter(p => p !== opt.id) : [...prev, opt.id]
+                            )}
+                            className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+                              active
+                                ? "border-primary bg-purple-50 text-primary"
+                                : "border-gray-200 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
+                            }`}
+                          >
+                            <span className="text-base">{opt.emoji}</span>
+                            <span>{opt.label}</span>
+                            {active && <span className="ml-auto text-primary text-xs">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
                 <div className="mt-4">

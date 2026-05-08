@@ -96,6 +96,7 @@ class UserResponse(BaseModel):
 class DiscoverRequest(BaseModel):
     city: str = Field(description="City name, e.g. 'Tokyo'")
     country: str = Field(description="Country name, e.g. 'Japan'")
+    dietary_preferences: Optional[List[str]] = Field(default_factory=list)
 
 
 class DiscoverResponse(BaseModel):
@@ -197,12 +198,13 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
         city = db.cities.find_by_slug(slug)
         logger.info(f"[discover] slug={slug} cached_city={'yes' if city else 'no'}")
 
+        dietary = request.dietary_preferences or []
         job_id = db.jobs.create_job(
             clerk_user_id=clerk_user_id,
             job_type="city_discovery",
-            request_payload={"city": request.city, "country": request.country, "slug": slug, "city_id": city['id'] if city else None},
+            request_payload={"city": request.city, "country": request.country, "slug": slug, "city_id": city['id'] if city else None, "dietary_preferences": dietary},
         )
-        logger.info(f"[discover] job created: {job_id}")
+        logger.info(f"[discover] job created: {job_id} dietary={dietary}")
 
         lambda_client.invoke(
             FunctionName=DISH_DISCOVERER_FUNCTION,
@@ -213,6 +215,7 @@ async def discover_city(request: DiscoverRequest, clerk_user_id: str = Depends(g
                 "country": request.country,
                 "slug": slug,
                 "city_id": city['id'] if city else None,
+                "dietary_preferences": dietary,
             }),
         )
         logger.info(f"[discover] invoked dish-discoverer async: {job_id}")

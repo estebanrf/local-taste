@@ -4,6 +4,7 @@ Finds and ranks the top-5 restaurants for a specific dish in a city.
 """
 
 import os
+import re
 import json
 import asyncio
 import logging
@@ -25,6 +26,17 @@ logger.setLevel(logging.INFO)
 
 db = Database()
 
+_COORDS_RE = re.compile(r"@(-?\d+\.\d+),(-?\d+\.\d+)")
+
+def _extract_coords(maps_url: str):
+    """Extract lat/lng from a Google Maps URL like .../@48.8566,2.3522,17z"""
+    if not maps_url:
+        return None, None
+    m = _COORDS_RE.search(maps_url)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    return None, None
+
 
 def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_mode: bool = False) -> None:
     try:
@@ -41,6 +53,10 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
         if not category_mode and dish_id:
             db.restaurants.delete_by_dish(dish_id)
             for r in restaurants[:5]:
+                lat, lng = _extract_coords(r.get("google_maps_url"))
+                # Agent may also return coords directly
+                lat = r.get("latitude") or lat
+                lng = r.get("longitude") or lng
                 rest = RestaurantCreate(
                     dish_id=dish_id,
                     name=r["name"],
@@ -52,9 +68,11 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                     rank=r.get("rank", 1),
                     rank_rationale=r.get("rank_rationale", ""),
                     highlights=r.get("highlights", []),
+                    latitude=lat,
+                    longitude=lng,
                 )
                 db.restaurants.create_restaurant(rest)
-                logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']}")
+                logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} coords={lat},{lng}")
         else:
             logger.info(f"RestaurantRanker: category_mode={category_mode} — skipping DB write, results in job payload only")
 

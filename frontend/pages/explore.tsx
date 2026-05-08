@@ -4,6 +4,7 @@ import Layout from "../components/Layout";
 import CityAutocomplete from "../components/CityAutocomplete";
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
+import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
 import Link from "next/link";
 import Head from "next/head";
 
@@ -66,6 +67,8 @@ export default function Explore() {
   }, []);
   const [foodCategory, setFoodCategory] = useState<string>(LOCAL_CATEGORY);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
+  const [useMyPrefs, setUseMyPrefs] = useState(true);
+  const [customPrefs, setCustomPrefs] = useState<string[]>([]);
   const [stage, setStage] = useState<Stage>("idle");
   const [_jobId, setJobId] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
@@ -85,8 +88,7 @@ export default function Explore() {
       fetch(`${API_URL}/api/user`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
-          const raw = data?.user?.dietary_notes;
-          try { setDietaryPrefs(raw ? JSON.parse(raw) : []); } catch { /* keep empty */ }
+          setDietaryPrefs(parseDietaryPrefs(data?.user?.dietary_notes));
         })
         .catch(() => { /* silent */ });
     });
@@ -180,7 +182,11 @@ export default function Explore() {
       const res = await fetch(`${API_URL}/api/discover`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ city: cityInput.trim(), country: countryInput.trim() }),
+        body: JSON.stringify({
+          city: cityInput.trim(),
+          country: countryInput.trim(),
+          dietary_preferences: useMyPrefs ? dietaryPrefs : customPrefs,
+        }),
       });
       if (!res.ok) throw new Error("Failed to start discovery");
       const data = await res.json();
@@ -301,6 +307,8 @@ export default function Explore() {
     return "Worth every bite";
   };
 
+  const activeDiscoverPrefs = useMyPrefs ? dietaryPrefs : customPrefs;
+
   const getRestaurantBadge = (r: Restaurant): string | null => {
     const h = r.highlights.map(s => s.toLowerCase()).join(" ");
     if (/hidden|secret|gem/.test(h)) return "Hidden gem";
@@ -345,6 +353,73 @@ export default function Explore() {
               </button>
             </div>
 
+            {/* Dietary preferences — only shown for local dishes discovery */}
+            {foodCategory === LOCAL_CATEGORY && (
+              <div className="mb-5 border border-gray-100 rounded-xl p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-gray-700">Dietary preferences</span>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <span className="text-xs text-gray-500">Use my saved preferences</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={useMyPrefs}
+                      onClick={() => setUseMyPrefs(v => !v)}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${useMyPrefs ? "bg-primary" : "bg-gray-300"}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${useMyPrefs ? "translate-x-5" : "translate-x-0"}`} />
+                    </button>
+                  </label>
+                </div>
+                {useMyPrefs ? (
+                  dietaryPrefs.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {dietaryPrefs.map(p => {
+                        const opt = DIETARY_OPTIONS.find(o => o.id === p);
+                        return (
+                          <span key={p} className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-200">
+                            {opt?.emoji} {opt?.label ?? p}
+                          </span>
+                        );
+                      })}
+                      <Link href="/passport" className="text-xs text-gray-400 hover:text-primary self-center ml-1">edit →</Link>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400">
+                      No preferences saved. <Link href="/passport" className="text-primary hover:underline">Set them in your passport</Link>.
+                    </p>
+                  )
+                ) : (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-2">Select which preferences to apply to this search:</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {DIETARY_OPTIONS.map(opt => {
+                        const active = customPrefs.includes(opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setCustomPrefs(prev =>
+                              prev.includes(opt.id) ? prev.filter(p => p !== opt.id) : [...prev, opt.id]
+                            )}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                              active
+                                ? "border-primary bg-purple-50 text-primary"
+                                : "border-gray-200 text-gray-600 hover:border-purple-200 hover:bg-white"
+                            }`}
+                          >
+                            <span>{opt.emoji}</span>
+                            <span>{opt.label}</span>
+                            {active && <span className="ml-auto text-primary">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Non-local cuisines */}
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Not feeling local?</p>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
@@ -381,20 +456,6 @@ export default function Explore() {
                 {stage === "searching" ? "Searching…" : foodCategory === LOCAL_CATEGORY ? "Discover" : "Find restaurants"}
               </button>
             </div>
-            {dietaryPrefs.length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className="text-xs text-gray-500 font-medium">Filtering results for:</span>
-                {dietaryPrefs.map(p => (
-                  <span key={p} className="text-xs px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-100">{p}</span>
-                ))}
-                <Link href="/passport" className="text-xs text-gray-400 hover:text-primary ml-1">edit →</Link>
-              </div>
-            )}
-            {dietaryPrefs.length === 0 && (
-              <p className="text-xs text-gray-400 mt-2">
-                Have dietary preferences? <Link href="/passport" className="text-primary hover:underline">Set them in your passport</Link> and we&apos;ll filter results for you.
-              </p>
-            )}
           </form>
 
           {/* Loading state */}
@@ -434,6 +495,19 @@ export default function Explore() {
                 <div className="text-4xl mb-4 animate-strong-pulse">🌍</div>
                 <p className="text-lg font-medium text-gray-700 mb-2">{statusMessage}</p>
                 <p className="text-sm text-gray-500">Gathering local reviews and recommendations — usually takes 20-40 seconds</p>
+                {stage === "searching" && activeDiscoverPrefs.length > 0 && (
+                  <div className="mt-4 flex flex-wrap justify-center items-center gap-2">
+                    <span className="text-xs text-gray-400">Applying:</span>
+                    {activeDiscoverPrefs.map(p => {
+                      const opt = DIETARY_OPTIONS.find(o => o.id === p);
+                      return (
+                        <span key={p} className="text-xs px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-100">
+                          {opt?.emoji} {opt?.label ?? p}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="flex justify-center gap-2 mt-4">
                   <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" />
                   <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" style={{ animationDelay: "0.3s" }} />
@@ -522,15 +596,42 @@ export default function Explore() {
 
           {/* Restaurants */}
           {stage === "restaurants" && (selectedDish || foodCategory !== LOCAL_CATEGORY) && (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="space-y-4">
+              {/* Dish description banner */}
+              {selectedDish && (
+                <div className="bg-gradient-to-r from-purple-50 to-violet-50 rounded-xl p-5 border border-purple-100 flex items-start gap-4">
+                  <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-bold text-base ${
+                    selectedDish.rank === 1 ? "bg-violet-500 text-white" :
+                    selectedDish.rank === 2 ? "bg-purple-400 text-white" :
+                    selectedDish.rank === 3 ? "bg-purple-300 text-white" : "bg-purple-100 text-purple-700"
+                  }`}>{selectedDish.rank}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="font-bold text-dark text-lg">{selectedDish.name}</h3>
+                      {selectedDish.cuisine_type && (
+                        <span className="text-xs text-purple-500 font-medium">{selectedDish.cuisine_type}</span>
+                      )}
+                    </div>
+                    {selectedDish.description && (
+                      <p className="text-gray-600 text-sm leading-relaxed">{selectedDish.description}</p>
+                    )}
+                    {selectedDish.tags.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {selectedDish.tags.map(tag => (
+                          <span key={tag} className="px-2 py-0.5 bg-white text-purple-600 rounded-full text-xs font-medium border border-purple-100">{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-start justify-between mb-6">
                 <div className="flex-1 min-w-0 pr-4">
                   <h2 className="text-2xl font-bold text-dark mb-1">
                     {selectedDish ? `Where locals go for ${selectedDish.name}` : `Best ${categoryLabel} in ${cityInput}`}
                   </h2>
-                  {selectedDish?.description && (
-                    <p className="text-gray-500 text-sm leading-relaxed mb-1">{selectedDish.description}</p>
-                  )}
                   <p className="text-gray-400 text-xs">Chosen using local reviews, reputation, and food expertise</p>
                 </div>
                 <button
@@ -619,6 +720,7 @@ export default function Explore() {
                   })}
                 </div>
               )}
+              </div>
             </div>
           )}
         </div>

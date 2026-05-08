@@ -54,6 +54,8 @@ class RestaurantCreate(BaseModel):
     rank: int = Field(ge=1, le=5, description="AI-computed composite rank 1-5")
     rank_rationale: Optional[str] = Field(None, description="Explanation of the composite rank")
     highlights: List[str] = Field(default_factory=list, description="Short highlights e.g. ['authentic','local favourite']")
+    latitude: Optional[float] = Field(None, description="Latitude extracted from Maps URL or geocoded")
+    longitude: Optional[float] = Field(None, description="Longitude extracted from Maps URL or geocoded")
 
 
 class RestaurantResponse(RestaurantCreate):
@@ -144,6 +146,8 @@ class RestaurantItem(BaseModel):
     rank: int = Field(ge=1, le=5)
     rank_rationale: str
     highlights: List[str] = Field(default_factory=list)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class RestaurantRankingResult(BaseModel):
