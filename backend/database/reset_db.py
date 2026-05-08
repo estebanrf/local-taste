@@ -13,6 +13,7 @@ from src.models import Database
 def drop_all_tables(db: DataAPIClient):
     print("Dropping existing tables...")
     tables = [
+        "itinerary_items",
         "passport_entries",
         "restaurants",
         "dishes",

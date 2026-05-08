@@ -42,19 +42,29 @@ type Stage = "idle" | "searching" | "dishes" | "loading_restaurants" | "restaura
 
 const LOCAL_CATEGORY = "local";
 
-const FOOD_CATEGORIES = [
-  { id: "pizza",        label: "Pizza",          emoji: "🍕" },
-  { id: "pasta",        label: "Pasta",          emoji: "🍝" },
-  { id: "sushi",        label: "Sushi",          emoji: "🍣" },
-  { id: "ramen",        label: "Ramen",          emoji: "🍜" },
-  { id: "dumplings",    label: "Dumplings",      emoji: "🥟" },
-  { id: "mexican",      label: "Mexican",        emoji: "🌮" },
-  { id: "indian",       label: "Indian",         emoji: "🍛" },
-  { id: "thai",         label: "Thai",           emoji: "🥗" },
+const CUISINE_CATEGORIES = [
+  { id: "pizza",          label: "Pizza",          emoji: "🍕" },
+  { id: "pasta",          label: "Pasta",          emoji: "🍝" },
+  { id: "sushi",          label: "Sushi",          emoji: "🍣" },
+  { id: "ramen",          label: "Ramen",          emoji: "🍜" },
+  { id: "dumplings",      label: "Dumplings",      emoji: "🥟" },
+  { id: "mexican",        label: "Mexican",        emoji: "🌮" },
+  { id: "indian",         label: "Indian",         emoji: "🍛" },
+  { id: "thai",           label: "Thai",           emoji: "🥗" },
   { id: "middle-eastern", label: "Middle Eastern", emoji: "🥙" },
-  { id: "burgers",      label: "Burgers",        emoji: "🍔" },
-  { id: "brunch",       label: "Brunch",         emoji: "🥞" },
+  { id: "burgers",        label: "Burgers",        emoji: "🍔" },
 ];
+
+const MEAL_CATEGORIES = [
+  { id: "breakfast",  label: "Breakfast",  emoji: "🌅" },
+  { id: "brunch",     label: "Brunch",     emoji: "🥞" },
+  { id: "lunch",      label: "Lunch",      emoji: "☀️" },
+  { id: "snack",      label: "Snack",      emoji: "🥡" },
+  { id: "dinner",     label: "Dinner",     emoji: "🌙" },
+  { id: "late-night", label: "Late Night", emoji: "🌃" },
+];
+
+const FOOD_CATEGORIES = [...CUISINE_CATEGORIES, ...MEAL_CATEGORIES];
 
 export default function Explore() {
   const { getToken } = useAuth();
@@ -69,6 +79,7 @@ export default function Explore() {
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [useMyPrefs, setUseMyPrefs] = useState(true);
   const [customPrefs, setCustomPrefs] = useState<string[]>([]);
+  const [itineraryDishIds, setItineraryDishIds] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<Stage>("idle");
   const [_jobId, setJobId] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
@@ -80,18 +91,24 @@ export default function Explore() {
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
 
-  // Load user dietary preferences once Clerk has initialized
+  // Load user dietary preferences and itinerary dish IDs once Clerk has initialized
   useEffect(() => {
     if (!isUserLoaded) return;
-    getToken().then(token => {
+    getToken().then(async token => {
       if (!token) return;
-      fetch(`${API_URL}/api/user`, { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          setDietaryPrefs(parseDietaryPrefs(data?.user?.dietary_notes));
-        })
-        .catch(() => { /* silent */ });
-    });
+      const [userRes, itineraryRes] = await Promise.all([
+        fetch(`${API_URL}/api/user`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/itinerary`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (userRes.ok) {
+        const data = await userRes.json();
+        setDietaryPrefs(parseDietaryPrefs(data?.user?.dietary_notes));
+      }
+      if (itineraryRes.ok) {
+        const data = await itineraryRes.json();
+        setItineraryDishIds(new Set((data.items || []).map((i: {dish_id: string}) => i.dish_id)));
+      }
+    }).catch(() => { /* silent */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUserLoaded]);
 
@@ -280,6 +297,21 @@ export default function Explore() {
     }
   };
 
+  const handleAddToItinerary = async (dish: Dish) => {
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/itinerary`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ dish_id: dish.id }),
+      });
+      setItineraryDishIds(prev => new Set([...prev, dish.id]));
+      showToast("success", `"${dish.name}" added to your trip!`);
+    } catch {
+      showToast("error", "Failed to add to trip.");
+    }
+  };
+
   const rankColor = (rank: number) => {
     if (rank === 1) return "bg-violet-400 text-white";
     if (rank === 2) return "bg-gray-300 text-gray-700";
@@ -420,10 +452,30 @@ export default function Explore() {
               </div>
             )}
 
-            {/* Non-local cuisines */}
+            {/* Cuisines */}
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Not feeling local?</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-              {FOOD_CATEGORIES.map(cat => (
+            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-10 gap-2 mb-5">
+              {CUISINE_CATEGORIES.map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setFoodCategory(cat.id)}
+                  className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
+                    foodCategory === cat.id
+                      ? "border-primary bg-purple-50 text-primary"
+                      : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="text-xl">{cat.emoji}</span>
+                  <span>{cat.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Meal times */}
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">By meal time</p>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {MEAL_CATEGORIES.map(cat => (
                 <button
                   key={cat.id}
                   type="button"
@@ -576,6 +628,19 @@ export default function Explore() {
                           >
                             Where to eat →
                           </button>
+                          {itineraryDishIds.has(dish.id) ? (
+                            <span className="text-xs px-4 py-2 bg-green-50 text-green-700 rounded-lg border border-green-200 text-center font-medium">
+                              ✓ In my trip
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleAddToItinerary(dish); }}
+                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors text-center"
+                              title="Add to my trip"
+                            >
+                              🗺️ Add to trip
+                            </button>
+                          )}
                           {!dish.in_passport && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleAddToPassport(dish); }}

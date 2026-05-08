@@ -9,7 +9,7 @@ from .client import DataAPIClient
 from .schemas import (
     CityCreate, DishCreate, RestaurantCreate,
     PassportEntryCreate, PassportEntryUpdate,
-    UserCreate, JobCreate,
+    UserCreate, JobCreate, ItineraryItemCreate,
 )
 
 
@@ -173,6 +173,58 @@ class PassportEntries(BaseModel):
         return result or {'total_dishes': 0, 'cities_visited': 0, 'cuisine_types': 0, 'avg_rating': None}
 
 
+class ItineraryItems(BaseModel):
+    table_name = 'itinerary_items'
+
+    def find_by_user(self, clerk_user_id: str) -> List[Dict]:
+        sql = """
+            SELECT ii.*,
+                   d.description  AS dish_description,
+                   d.cuisine_type,
+                   d.tags,
+                   d.rank         AS dish_rank,
+                   c.id           AS city_id,
+                   (SELECT COUNT(*) FROM passport_entries pe
+                    WHERE pe.clerk_user_id = ii.clerk_user_id
+                      AND pe.dish_id = ii.dish_id) AS eaten_count,
+                   (SELECT r.latitude  FROM restaurants r
+                    WHERE r.dish_id = ii.dish_id AND r.latitude  IS NOT NULL LIMIT 1) AS latitude,
+                   (SELECT r.longitude FROM restaurants r
+                    WHERE r.dish_id = ii.dish_id AND r.longitude IS NOT NULL LIMIT 1) AS longitude
+            FROM itinerary_items ii
+            LEFT JOIN dishes d ON ii.dish_id = d.id
+            LEFT JOIN cities c ON d.city_id = c.id
+            WHERE ii.clerk_user_id = :uid
+            ORDER BY ii.created_at DESC
+        """
+        return self.db.query(sql, [{'name': 'uid', 'value': {'stringValue': clerk_user_id}}])
+
+    def find_by_user_and_dish(self, clerk_user_id: str, dish_id: str) -> Optional[Dict]:
+        sql = """
+            SELECT * FROM itinerary_items
+            WHERE clerk_user_id = :uid AND dish_id = :dish_id::uuid
+        """
+        return self.db.query_one(sql, [
+            {'name': 'uid', 'value': {'stringValue': clerk_user_id}},
+            {'name': 'dish_id', 'value': {'stringValue': dish_id}},
+        ])
+
+    def create_item(self, clerk_user_id: str, item: ItineraryItemCreate, dish_name: str, city_name: str, country: str) -> str:
+        data = {
+            'clerk_user_id': clerk_user_id,
+            'dish_id': item.dish_id,
+            'dish_name': dish_name,
+            'city_name': city_name,
+            'country': country,
+        }
+        if item.notes:
+            data['notes'] = item.notes
+        return self.db.insert('itinerary_items', data, returning='id')
+
+    def delete_item(self, item_id: str) -> int:
+        return self.db.delete('itinerary_items', "id = :id::uuid", {'id': item_id})
+
+
 class Jobs(BaseModel):
     table_name = 'jobs'
 
@@ -224,6 +276,7 @@ class Database:
         self.dishes = Dishes(self.client)
         self.restaurants = Restaurants(self.client)
         self.passport = PassportEntries(self.client)
+        self.itinerary = ItineraryItems(self.client)
         self.jobs = Jobs(self.client)
 
     def execute_raw(self, sql: str, parameters: List[Dict] = None) -> Dict:

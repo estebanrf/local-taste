@@ -22,6 +22,7 @@ from src.schemas import (
     UserUpdate,
     PassportEntryCreate,
     PassportEntryUpdate,
+    ItineraryItemCreate,
     JobType, JobStatus,
 )
 
@@ -443,6 +444,66 @@ async def delete_passport_entry(entry_id: str, clerk_user_id: str = Depends(get_
         raise
     except Exception as e:
         logger.error(f"Error deleting passport entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Itinerary ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/itinerary")
+async def get_itinerary(clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        items = db.itinerary.find_by_user(clerk_user_id)
+        return {"items": items}
+    except Exception as e:
+        logger.error(f"Error fetching itinerary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/itinerary")
+async def add_itinerary_item(item: ItineraryItemCreate, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        dish = db.dishes.find_by_id(item.dish_id)
+        if not dish:
+            raise HTTPException(status_code=404, detail="Dish not found")
+
+        city = db.cities.find_by_id(dish["city_id"])
+        if not city:
+            raise HTTPException(status_code=404, detail="City not found")
+
+        existing = db.itinerary.find_by_user_and_dish(clerk_user_id, item.dish_id)
+        if existing:
+            return existing
+
+        item_id = db.itinerary.create_item(
+            clerk_user_id=clerk_user_id,
+            item=item,
+            dish_name=dish["name"],
+            city_name=city["name"],
+            country=city["country"],
+        )
+        logger.info(f"Itinerary: added dish={dish['name']} city={city['name']} user={clerk_user_id}")
+        return db.itinerary.find_by_user_and_dish(clerk_user_id, item.dish_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding itinerary item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/itinerary/{item_id}")
+async def delete_itinerary_item(item_id: str, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        item = db.itinerary.find_by_id(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Itinerary item not found")
+        if item.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db.itinerary.delete_item(item_id)
+        return {"message": "Removed from itinerary"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting itinerary item: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

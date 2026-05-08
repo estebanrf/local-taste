@@ -102,6 +102,13 @@ class UserUpdate(BaseModel):
     dietary_notes: Optional[str] = None
 
 
+# ── Itinerary ─────────────────────────────────────────────────────────────────
+
+class ItineraryItemCreate(BaseModel):
+    dish_id: str
+    notes: Optional[str] = None
+
+
 # ── Jobs ──────────────────────────────────────────────────────────────────────
 
 class JobCreate(BaseModel):

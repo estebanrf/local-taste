@@ -107,6 +107,22 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at   TIMESTAMP DEFAULT NOW()
 );
 
+-- Culinary travel itinerary (one pin per dish per user)
+CREATE TABLE IF NOT EXISTS itinerary_items (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    clerk_user_id   VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+    dish_id         UUID REFERENCES dishes(id) ON DELETE SET NULL,
+    dish_name       VARCHAR(255) NOT NULL,
+    city_name       VARCHAR(255) NOT NULL,
+    country         VARCHAR(255) NOT NULL,
+    notes           TEXT,
+
+    created_at      TIMESTAMP DEFAULT NOW(),
+    updated_at      TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE(clerk_user_id, dish_id)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_cities_slug          ON cities(slug);
 CREATE INDEX IF NOT EXISTS idx_dishes_city          ON dishes(city_id);
@@ -116,6 +132,8 @@ CREATE INDEX IF NOT EXISTS idx_passport_user        ON passport_entries(clerk_us
 CREATE INDEX IF NOT EXISTS idx_passport_dish        ON passport_entries(dish_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_user            ON jobs(clerk_user_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_status          ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_itinerary_user       ON itinerary_items(clerk_user_id);
+CREATE INDEX IF NOT EXISTS idx_itinerary_dish       ON itinerary_items(dish_id);
 
 -- Auto-update updated_at trigger
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -132,3 +150,4 @@ CREATE TRIGGER update_dishes_updated_at       BEFORE UPDATE ON dishes       FOR 
 CREATE TRIGGER update_restaurants_updated_at  BEFORE UPDATE ON restaurants  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_passport_updated_at     BEFORE UPDATE ON passport_entries FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_jobs_updated_at         BEFORE UPDATE ON jobs         FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_itinerary_updated_at    BEFORE UPDATE ON itinerary_items FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
