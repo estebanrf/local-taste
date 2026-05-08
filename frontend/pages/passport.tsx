@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import Layout from "../components/Layout";
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
@@ -41,6 +41,7 @@ const DIETARY_OPTIONS = [
 
 export default function Passport() {
   const { getToken } = useAuth();
+  const { isLoaded: isUserLoaded } = useUser();
   const [entries, setEntries] = useState<PassportEntry[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,8 +73,10 @@ export default function Passport() {
     }
   };
 
+  useEffect(() => {
+    if (isUserLoaded) load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, []);
+  }, [isUserLoaded]);
 
   const toggleDietaryPref = async (id: string) => {
     const next = dietaryPrefs.includes(id)

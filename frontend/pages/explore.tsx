@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import Layout from "../components/Layout";
 import CityAutocomplete from "../components/CityAutocomplete";
 import { API_URL } from "../lib/config";
@@ -57,6 +57,7 @@ const FOOD_CATEGORIES = [
 
 export default function Explore() {
   const { getToken } = useAuth();
+  const { isLoaded: isUserLoaded } = useUser();
   const [cityInput, setCityInput] = useState("");
   const [countryInput, setCountryInput] = useState("");
   const handleCitySelect = useCallback((city: string, country: string) => {
@@ -76,9 +77,9 @@ export default function Explore() {
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
 
-  // Load user dietary preferences on mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Load user dietary preferences once Clerk has initialized
   useEffect(() => {
+    if (!isUserLoaded) return;
     getToken().then(token => {
       if (!token) return;
       fetch(`${API_URL}/api/user`, { headers: { Authorization: `Bearer ${token}` } })
@@ -89,7 +90,8 @@ export default function Explore() {
         })
         .catch(() => { /* silent */ });
     });
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUserLoaded]);
 
   // Cleanup poll on unmount
   useEffect(() => () => { if (pollInterval) clearInterval(pollInterval); }, [pollInterval]);
@@ -160,7 +162,7 @@ export default function Explore() {
         pollJob(data.job_id, async (job) => {
           const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
           const rList = (rPayload.restaurants as Restaurant[]) || [];
-          setRestaurants(rList);
+          setRestaurants([...rList].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0)));
           setStage("restaurants");
         });
       } catch {
@@ -232,8 +234,10 @@ export default function Explore() {
       pollJob(data.job_id, async (job) => {
         const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
         const rList = (rPayload.restaurants as Restaurant[]) || [];
+        const sortByRating = (list: Restaurant[]) =>
+          [...list].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0));
         if (rList.length > 0) {
-          setRestaurants(rList);
+          setRestaurants(sortByRating(rList));
           setStage("restaurants");
         } else {
           // Fall back to direct fetch
@@ -243,7 +247,7 @@ export default function Explore() {
           });
           if (rRes.ok) {
             const rData = await rRes.json();
-            setRestaurants(rData.restaurants || []);
+            setRestaurants(sortByRating(rData.restaurants || []));
           }
           setStage("restaurants");
         }
@@ -378,8 +382,17 @@ export default function Explore() {
               </button>
             </div>
             {dietaryPrefs.length > 0 && (
-              <p className="text-xs text-gray-400 mt-3">
-                Filtering for: {dietaryPrefs.join(", ")} — <Link href="/passport" className="text-primary hover:underline">edit preferences</Link>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-gray-500 font-medium">Filtering results for:</span>
+                {dietaryPrefs.map(p => (
+                  <span key={p} className="text-xs px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-100">{p}</span>
+                ))}
+                <Link href="/passport" className="text-xs text-gray-400 hover:text-primary ml-1">edit →</Link>
+              </div>
+            )}
+            {dietaryPrefs.length === 0 && (
+              <p className="text-xs text-gray-400 mt-2">
+                Have dietary preferences? <Link href="/passport" className="text-primary hover:underline">Set them in your passport</Link> and we&apos;ll filter results for you.
               </p>
             )}
           </form>
@@ -439,7 +452,7 @@ export default function Explore() {
                 </h2>
                 {city.description && <p className="text-gray-600 mt-1">{city.description}</p>}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="space-y-3">
                 {dishes.map((dish) => {
                   const moment = getMealMoment(dish.tags);
                   const vibe = getDishVibe(dish.rank, dish.tags);
@@ -448,60 +461,54 @@ export default function Explore() {
                     <div
                       key={dish.id}
                       onClick={() => handleDishClick(dish)}
-                      className={`bg-white rounded-xl shadow cursor-pointer transition-all hover:shadow-xl hover:-translate-y-1 flex flex-col ${
-                        isSelected ? "ring-2 ring-primary shadow-lg" : ""
+                      className={`bg-white rounded-xl shadow cursor-pointer transition-all hover:shadow-md flex overflow-hidden ${
+                        isSelected ? "ring-2 ring-primary shadow-md" : ""
                       }`}
                     >
-                      {/* Card top band — colored by rank */}
-                      <div className={`rounded-t-xl px-4 py-3 flex items-center justify-between ${
+                      {/* Left color band */}
+                      <div className={`w-1.5 flex-shrink-0 ${
                         dish.rank === 1 ? "bg-violet-500" :
                         dish.rank === 2 ? "bg-purple-400" :
                         dish.rank === 3 ? "bg-purple-300" : "bg-purple-100"
-                      }`}>
-                        <span className={`text-xs font-bold uppercase tracking-wide ${dish.rank <= 3 ? "text-white" : "text-purple-700"}`}>
-                          {vibe}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          {dish.in_passport && <span title="In your passport" className="text-base">🛂</span>}
-                          {moment && (
-                            <span title={moment.label} className="text-base">{moment.emoji}</span>
+                      }`} />
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0 px-5 py-4 flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <h3 className="font-bold text-dark text-base leading-snug">{dish.name}</h3>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                              dish.rank <= 3 ? "bg-violet-100 text-violet-700" : "bg-purple-50 text-purple-600"
+                            }`}>{vibe}</span>
+                            {dish.in_passport && <span title="In your passport" className="text-sm">🛂</span>}
+                          </div>
+                          <div className="flex items-center gap-2 mb-1">
+                            {moment && <span className="text-xs text-purple-500 font-medium">{moment.emoji} {moment.label}</span>}
+                            {dish.cuisine_type && !moment && <span className="text-xs text-gray-400">{dish.cuisine_type}</span>}
+                          </div>
+                          <p className="text-sm text-gray-600 leading-relaxed line-clamp-2">{dish.description}</p>
+                          {dish.tags.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {dish.tags.slice(0, 3).map((tag) => (
+                                <span key={tag} className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full text-xs font-medium">{tag}</span>
+                              ))}
+                            </div>
                           )}
                         </div>
-                      </div>
-
-                      {/* Card body */}
-                      <div className="p-4 flex flex-col flex-1">
-                        <h3 className="font-bold text-dark text-base mb-0.5 leading-snug">{dish.name}</h3>
-                        {moment && (
-                          <p className="text-xs text-purple-500 font-medium mb-2">{moment.emoji} {moment.label}</p>
-                        )}
-                        {dish.cuisine_type && !moment && (
-                          <p className="text-xs text-gray-400 mb-2">{dish.cuisine_type}</p>
-                        )}
-                        <p className="text-sm text-gray-600 leading-relaxed line-clamp-4 flex-1">{dish.description}</p>
-
-                        {/* Tags */}
-                        <div className="mt-3 flex flex-wrap gap-1">
-                          {dish.tags.slice(0, 2).map((tag) => (
-                            <span key={tag} className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full text-xs font-medium">{tag}</span>
-                          ))}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="mt-4 flex gap-2">
+                        <div className="flex-shrink-0 flex flex-col gap-2">
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDishClick(dish); }}
-                            className="flex-1 text-xs py-2 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold"
+                            className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold whitespace-nowrap"
                           >
                             Where to eat →
                           </button>
                           {!dish.in_passport && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleAddToPassport(dish); }}
-                              className="text-xs px-2.5 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary transition-colors"
+                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary transition-colors text-center"
                               title="Add to passport"
                             >
-                              🛂
+                              🛂 Save
                             </button>
                           )}
                         </div>
@@ -551,10 +558,7 @@ export default function Explore() {
                       "Top pick":            "bg-violet-50 text-violet-700",
                     };
                     return (
-                      <div key={r.id || r.rank} className="flex items-start gap-4 p-5 rounded-xl border border-gray-100 hover:border-primary hover:shadow-sm transition-all">
-                        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${rankColor(r.rank)}`}>
-                          {r.rank}
-                        </div>
+                      <div key={r.id || r.rank} className="p-5 rounded-xl border border-gray-100 hover:border-primary hover:shadow-sm transition-all">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div>
