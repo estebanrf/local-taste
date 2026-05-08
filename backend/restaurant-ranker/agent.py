@@ -45,14 +45,14 @@ async def search_web(wrapper: RunContextWrapper[RestaurantRankerContext], query:
 
     try:
         client = TavilyClient(api_key=api_key)
+        logger.info(f"Tavily search query: {query}")
         response = client.search(query=query, max_results=5)
         results = response.get("results", [])
         text = "\n\n".join(
             f"**{r.get('title', '')}**\n{r.get('url', '')}\n{r.get('content', '')}"
             for r in results
         )
-        logger.info(f"Tavily search query: {query}")
-    logger.info(f"Tavily search for '{query}' returned {len(results)} results")
+        logger.info(f"Tavily search for '{query}' returned {len(results)} results")
         return text or "No results found."
     except Exception as e:
         logger.warning(f"Tavily search failed: {e}")
