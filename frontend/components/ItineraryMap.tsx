@@ -5,12 +5,20 @@ import "leaflet/dist/leaflet.css";
 
 interface MapItem {
   id: string;
+  dish_id: string | null;
   dish_name: string;
   city_name: string;
   country: string;
+  notes: string | null;
+  dish_description: string | null;
+  cuisine_type: string | null;
+  tags: string[];
+  dish_rank: number | null;
+  city_id: string | null;
+  eaten_count: number;
+  created_at: string;
   latitude: number | null;
   longitude: number | null;
-  eaten_count: number;
 }
 
 interface Props {
