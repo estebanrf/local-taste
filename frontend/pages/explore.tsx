@@ -94,8 +94,8 @@ export default function Explore() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
-  const [addedToTripKeys, setAddedToTripKeys] = useState<Set<string>>(new Set());
   const [wishlistDishIds, setWishlistDishIds] = useState<Set<string>>(new Set());
+  const [savedRestaurantIds, setSavedRestaurantIds] = useState<Set<string>>(new Set());
 
   // Save-to modal state
   const [saveModal, setSaveModal] = useState<{
@@ -103,6 +103,7 @@ export default function Explore() {
     dishName: string;
     cityName: string;
     country: string;
+    restaurantId?: string;
   } | null>(null);
   const [saveNotes, setSaveNotes] = useState("");
   const [saveDestination, setSaveDestination] = useState<"wishlist" | "trip">("wishlist");
@@ -331,7 +332,7 @@ export default function Explore() {
     }
   };
 
-  const openSaveModal = (dish: Dish | null, overrideCityName?: string, overrideCountry?: string) => {
+  const openSaveModal = (dish: Dish | null, overrideCityName?: string, overrideCountry?: string, restaurantId?: string) => {
     const dishName = dish ? dish.name : (categoryLabel || `Food in ${cityInput}`);
     const cName = overrideCityName ?? city?.name ?? cityInput;
     const cCountry = overrideCountry ?? city?.country ?? countryInput;
@@ -340,7 +341,7 @@ export default function Explore() {
     setSaveDestination("wishlist");
     setSelectedItineraryId(itineraries[0]?.id ?? "");
     setNewTripName("");
-    setSaveModal({ dishId: dish?.id ?? null, dishName, cityName: cName, country: cCountry });
+    setSaveModal({ dishId: dish?.id ?? null, dishName, cityName: cName, country: cCountry, restaurantId });
   };
 
   const confirmSave = async () => {
@@ -349,7 +350,7 @@ export default function Explore() {
     try {
       const token = await getToken();
       const baseBody = saveModal.dishId
-        ? { dish_id: saveModal.dishId, notes: saveNotes || undefined }
+        ? { dish_id: saveModal.dishId, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined }
         : { dish_name: saveModal.dishName, city_name: saveModal.cityName, country: saveModal.country, notes: saveNotes || undefined };
 
       if (saveDestination === "wishlist") {
@@ -360,6 +361,7 @@ export default function Explore() {
         });
         if (!res.ok) throw new Error(await res.text());
         if (saveModal.dishId) setWishlistDishIds(prev => new Set([...prev, saveModal.dishId!]));
+        if (saveModal.restaurantId) setSavedRestaurantIds(prev => new Set([...prev, saveModal.restaurantId!]));
         showToast("success", `"${saveModal.dishName}" added to your Wishlist!`);
       } else {
         let itineraryId = selectedItineraryId;
@@ -384,9 +386,8 @@ export default function Explore() {
           body: JSON.stringify(baseBody),
         });
         if (!res.ok) throw new Error(await res.text());
-        const key = `${saveModal.dishName}|${saveModal.cityName}`;
-        setAddedToTripKeys(prev => new Set([...prev, key]));
         if (saveModal.dishId) setItineraryDishIds(prev => new Set([...prev, saveModal.dishId!]));
+        if (saveModal.restaurantId) setSavedRestaurantIds(prev => new Set([...prev, saveModal.restaurantId!]));
         const tripName = itineraries.find(t => t.id === itineraryId)?.name ?? (newTripName.trim() || "My Trip");
         showToast("success", `"${saveModal.dishName}" added to "${tripName}"!`);
       }
@@ -724,19 +725,17 @@ export default function Explore() {
                           >
                             Where to eat →
                           </button>
-                          {wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id) ? (
-                            <span className="text-xs px-4 py-2 bg-green-50 text-green-700 rounded-lg border border-green-200 text-center font-medium">
-                              ✓ Saved
-                            </span>
-                          ) : (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openSaveModal(dish); }}
-                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors text-center"
-                              title="Save to wishlist or trip"
-                            >
-                              🗺️ Save
-                            </button>
-                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openSaveModal(dish); }}
+                            className={`text-xs px-4 py-2 rounded-lg transition-colors text-center ${
+                              wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id)
+                                ? "bg-green-50 text-green-700 border border-green-200 hover:bg-green-100"
+                                : "border border-gray-200 text-gray-500 hover:border-amber-400 hover:text-amber-600"
+                            }`}
+                            title="Save to wishlist or trip"
+                          >
+                            {wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id) ? "✓ Saved" : "🗺️ Save"}
+                          </button>
                           {!dish.in_passport && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleAddToPassport(dish); }}
@@ -874,23 +873,18 @@ export default function Explore() {
                                 🛂 Add to Passport
                               </button>
                             )}
-                            {(() => {
-                              const key = `${selectedDish ? selectedDish.name : categoryLabel}|${cityInput}`;
-                              const alreadySaved = addedToTripKeys.has(key)
-                                || (selectedDish ? (itineraryDishIds.has(selectedDish.id) || wishlistDishIds.has(selectedDish.id)) : false);
-                              return alreadySaved ? (
-                                <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
-                                  ✓ Saved
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => openSaveModal(selectedDish, cityInput.trim(), countryInput.trim())}
-                                  className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
-                                >
-                                  🗺️ Save
-                                </button>
-                              );
-                            })()}
+                            {savedRestaurantIds.has(r.id) ? (
+                              <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
+                                ✓ Saved
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openSaveModal(selectedDish, cityInput.trim(), countryInput.trim(), r.id)}
+                                className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
+                              >
+                                🗺️ Save here
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>

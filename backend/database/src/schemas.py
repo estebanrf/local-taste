@@ -115,6 +115,7 @@ class ItineraryItemCreate(BaseModel):
     country: Optional[str] = None
     notes: Optional[str] = None
     itinerary_id: Optional[str] = None
+    restaurant_id: Optional[str] = None
 
 
 # ── Wishlist ───────────────────────────────────────────────────────────────────
@@ -125,6 +126,7 @@ class WishlistItemCreate(BaseModel):
     city_name: Optional[str] = None
     country: Optional[str] = None
     notes: Optional[str] = None
+    restaurant_id: Optional[str] = None
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────

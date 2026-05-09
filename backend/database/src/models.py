@@ -151,7 +151,16 @@ class PassportEntries(BaseModel):
             'rating': entry.rating,
             'notes': entry.notes,
         }.items() if v is not None}
-        return self.db.insert('passport_entries', data, returning='id')
+        try:
+            return self.db.insert('passport_entries', data, returning='id')
+        except Exception as e:
+            if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+                existing = self.find_by_user_and_dish(clerk_user_id, entry.dish_id)
+                if existing:
+                    update = PassportEntryUpdate(restaurant_id=entry.restaurant_id)
+                    self.update_entry(existing['id'], update)
+                    return existing['id']
+            raise
 
     def update_entry(self, entry_id: str, update: PassportEntryUpdate) -> int:
         data = {k: v for k, v in update.model_dump().items() if v is not None}
@@ -226,6 +235,8 @@ class WishlistItems(BaseModel):
             data['dish_id'] = item.dish_id
         if item.notes:
             data['notes'] = item.notes
+        if item.restaurant_id:
+            data['restaurant_id'] = item.restaurant_id
         return self.db.insert('wishlist_items', data, returning='id')
 
     def delete_item(self, item_id: str) -> int:
@@ -304,6 +315,8 @@ class ItineraryItems(BaseModel):
             data['notes'] = item.notes
         if item.itinerary_id:
             data['itinerary_id'] = item.itinerary_id
+        if item.restaurant_id:
+            data['restaurant_id'] = item.restaurant_id
         return self.db.insert('itinerary_items', data, returning='id')
 
     def delete_item(self, item_id: str) -> int:

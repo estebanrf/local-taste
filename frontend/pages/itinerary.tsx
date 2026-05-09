@@ -69,6 +69,7 @@ export default function Itinerary() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [passportEntries, setPassportEntries] = useState<PassportEntry[]>([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
+  const [markingEaten, setMarkingEaten] = useState(false);
   const [rankingRestaurants, setRankingRestaurants] = useState(false);
   const [rankingStatus, setRankingStatus] = useState("");
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
@@ -247,7 +248,8 @@ export default function Itinerary() {
   };
 
   const handleMarkEaten = async (restaurant: Restaurant) => {
-    if (!selectedItem?.dish_id) return;
+    if (!selectedItem?.dish_id || markingEaten) return;
+    setMarkingEaten(true);
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/passport`, {
@@ -261,6 +263,8 @@ export default function Itinerary() {
       setSelectedItem(prev => prev ? { ...prev, eaten_count: (prev.eaten_count || 0) + 1 } : prev);
     } catch {
       showToast("error", "Failed to mark as eaten.");
+    } finally {
+      setMarkingEaten(false);
     }
   };
 
@@ -558,9 +562,10 @@ export default function Itinerary() {
                                         ) : (
                                           <button
                                             onClick={() => handleMarkEaten(r)}
-                                            className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
+                                            disabled={markingEaten}
+                                            className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
                                           >
-                                            ✓ Mark as eaten
+                                            {markingEaten ? "Saving…" : "✓ Mark as eaten"}
                                           </button>
                                         )}
                                         {r.google_maps_url && (
