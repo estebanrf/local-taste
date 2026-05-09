@@ -76,7 +76,7 @@ def main():
         create_test_user(db)
 
     print("\nVerification...")
-    for table in ["users", "cities", "dishes", "restaurants", "passport_entries", "jobs", "itineraries", "wishlist_items"]:
+    for table in ["users", "cities", "dishes", "restaurants", "passport_entries", "jobs"]:
         result = db_client.query(f"SELECT COUNT(*) as count FROM {table}")
         count = result[0]["count"] if result else 0
         print(f"  {table}: {count} records")
