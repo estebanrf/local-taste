@@ -69,6 +69,8 @@ export default function Itinerary() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [passportEntries, setPassportEntries] = useState<PassportEntry[]>([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
+  const [rankingRestaurants, setRankingRestaurants] = useState(false);
+  const [rankingStatus, setRankingStatus] = useState("");
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
   const [confirmDeleteTripId, setConfirmDeleteTripId] = useState<string | null>(null);
   const [creatingTrip, setCreatingTrip] = useState(false);
@@ -203,6 +205,47 @@ export default function Itinerary() {
     }
   };
 
+  const findRestaurants = async (item: ItineraryItem) => {
+    if (!item.dish_id) return;
+    setRankingRestaurants(true);
+    setRankingStatus("Finding the best spots…");
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/rank-restaurants`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { job_id } = await res.json();
+      const interval = setInterval(async () => {
+        try {
+          const t = await getToken();
+          const jr = await fetch(`${API_URL}/api/jobs/${job_id}`, { headers: { Authorization: `Bearer ${t}` } });
+          if (!jr.ok) return;
+          const job = await jr.json();
+          if (job.status === "completed") {
+            clearInterval(interval);
+            setRankingRestaurants(false);
+            setRankingStatus("");
+            await openDish(item);
+          } else if (job.status === "failed") {
+            clearInterval(interval);
+            setRankingRestaurants(false);
+            setRankingStatus("");
+            showToast("error", "Failed to find restaurants.");
+          } else {
+            setRankingStatus("Searching local reviews…");
+          }
+        } catch { /* keep polling */ }
+      }, 2000);
+    } catch {
+      setRankingRestaurants(false);
+      setRankingStatus("");
+      showToast("error", "Failed to start restaurant search.");
+    }
+  };
+
   const handleMarkEaten = async (restaurant: Restaurant) => {
     if (!selectedItem?.dish_id) return;
     try {
@@ -297,7 +340,7 @@ export default function Itinerary() {
                     </button>
                     <button
                       onClick={() => setConfirmDeleteTripId(trip.id)}
-                      className="text-gray-300 hover:text-red-400 text-xs px-1 transition-colors"
+                      className="text-red-400 hover:text-red-600 text-xs px-1 transition-colors"
                       title="Delete trip"
                     >✕</button>
                   </div>
@@ -471,12 +514,25 @@ export default function Itinerary() {
                               <p className="text-xs text-gray-400 text-center py-4">Loading restaurants…</p>
                             ) : restaurants.length === 0 ? (
                               <div className="text-center py-6">
-                                <p className="text-xs text-gray-400 mb-3">No restaurants cached yet.</p>
-                                <Link href="/explore">
-                                  <button className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700">
-                                    Find restaurants
-                                  </button>
-                                </Link>
+                                {rankingRestaurants ? (
+                                  <>
+                                    <div className="text-2xl mb-2 animate-pulse">🌍</div>
+                                    <p className="text-xs text-gray-500 mb-1">{rankingStatus}</p>
+                                    <p className="text-xs text-gray-400">Usually 20–40 seconds…</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="text-xs text-gray-400 mb-3">No restaurants found yet.</p>
+                                    {selectedItem?.dish_id && (
+                                      <button
+                                        onClick={() => findRestaurants(selectedItem)}
+                                        className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700"
+                                      >
+                                        🔍 Find restaurants
+                                      </button>
+                                    )}
+                                  </>
+                                )}
                               </div>
                             ) : (
                               <div className="space-y-3">
@@ -495,7 +551,9 @@ export default function Itinerary() {
                                         <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
                                       )}
                                       <div className="flex items-center gap-2 flex-wrap">
-                                        {eaten ? (
+                                        {!selectedItem?.dish_id ? (
+                                          <span className="text-xs text-gray-400 italic">Discover this dish from Explore to track it</span>
+                                        ) : eaten ? (
                                           <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
                                         ) : (
                                           <button

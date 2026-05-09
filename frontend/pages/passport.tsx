@@ -8,6 +8,19 @@ import Link from "next/link";
 import Head from "next/head";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
 
+interface Restaurant {
+  id: string;
+  name: string;
+  address: string | null;
+  google_maps_url: string | null;
+  google_rating: number | null;
+  review_count: number | null;
+  price_level: string | null;
+  rank: number;
+  rank_rationale: string;
+  highlights: string[];
+}
+
 interface WishlistItem {
   id: string;
   dish_id: string | null;
@@ -61,6 +74,11 @@ export default function Passport() {
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
   const [confirmDeleteWishlistId, setConfirmDeleteWishlistId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"passport" | "wishlist">("passport");
+  const [selectedWishlistItem, setSelectedWishlistItem] = useState<WishlistItem | null>(null);
+  const [wishlistRestaurants, setWishlistRestaurants] = useState<Restaurant[]>([]);
+  const [loadingWishlistRestaurants, setLoadingWishlistRestaurants] = useState(false);
+  const [rankingWishlistRestaurants, setRankingWishlistRestaurants] = useState(false);
+  const [rankingWishlistStatus, setRankingWishlistStatus] = useState("");
 
   const load = async () => {
     try {
@@ -151,6 +169,69 @@ export default function Passport() {
       showToast("success", "Removed from wishlist.");
     } catch {
       showToast("error", "Failed to remove.");
+    }
+  };
+
+  const openWishlistItem = async (item: WishlistItem) => {
+    setSelectedWishlistItem(item);
+    setWishlistRestaurants([]);
+    if (!item.dish_id) return;
+    setLoadingWishlistRestaurants(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/dishes/${item.dish_id}/restaurants`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const sorted = [...(data.restaurants || [])].sort(
+          (a: Restaurant, b: Restaurant) => (b.google_rating ?? 0) - (a.google_rating ?? 0)
+        );
+        setWishlistRestaurants(sorted);
+      }
+    } catch { /* silent */ } finally {
+      setLoadingWishlistRestaurants(false);
+    }
+  };
+
+  const findWishlistRestaurants = async (item: WishlistItem) => {
+    if (!item.dish_id) return;
+    setRankingWishlistRestaurants(true);
+    setRankingWishlistStatus("Finding the best spots…");
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/rank-restaurants`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { job_id } = await res.json();
+      const interval = setInterval(async () => {
+        try {
+          const t = await getToken();
+          const jr = await fetch(`${API_URL}/api/jobs/${job_id}`, { headers: { Authorization: `Bearer ${t}` } });
+          if (!jr.ok) return;
+          const job = await jr.json();
+          if (job.status === "completed") {
+            clearInterval(interval);
+            setRankingWishlistRestaurants(false);
+            setRankingWishlistStatus("");
+            await openWishlistItem(item);
+          } else if (job.status === "failed") {
+            clearInterval(interval);
+            setRankingWishlistRestaurants(false);
+            setRankingWishlistStatus("");
+            showToast("error", "Failed to find restaurants.");
+          } else {
+            setRankingWishlistStatus("Searching local reviews…");
+          }
+        } catch { /* keep polling */ }
+      }, 2000);
+    } catch {
+      setRankingWishlistRestaurants(false);
+      setRankingWishlistStatus("");
+      showToast("error", "Failed to start restaurant search.");
     }
   };
 
@@ -285,42 +366,129 @@ export default function Passport() {
                   </Link>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {wishlistItems.map(item => (
-                    <div key={item.id} className="bg-white rounded-lg shadow p-4 flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <h3 className="font-semibold text-dark">{item.dish_name}</h3>
-                          {item.cuisine_type && (
-                            <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">{item.cuisine_type}</span>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Left: dish list */}
+                  <div className="lg:col-span-2 space-y-2">
+                    {wishlistItems.map(item => {
+                      const isSelected = selectedWishlistItem?.id === item.id;
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => openWishlistItem(item)}
+                          className={`bg-white rounded-xl shadow-sm border cursor-pointer transition-all hover:shadow-md flex overflow-hidden ${
+                            isSelected ? "ring-2 ring-primary border-transparent" : "border-gray-100"
+                          }`}
+                        >
+                          <div className="w-1.5 flex-shrink-0 bg-amber-300" />
+                          <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-dark text-sm">{item.dish_name}</span>
+                                {item.cuisine_type && (
+                                  <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">{item.cuisine_type}</span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-400 mt-0.5">📍 {item.city_name}, {item.country}</p>
+                              {item.dish_description && (
+                                <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{item.dish_description}</p>
+                              )}
+                              {item.notes && (
+                                <p className="text-xs text-amber-700 mt-0.5 italic">📝 {item.notes}</p>
+                              )}
+                            </div>
+                            <button
+                              onClick={e => { e.stopPropagation(); setConfirmDeleteWishlistId(item.id); }}
+                              className="flex-shrink-0 text-xs text-red-300 hover:text-red-500 transition-colors px-2"
+                              title="Remove from wishlist"
+                            >✕</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right: restaurant panel */}
+                  <div className="lg:col-span-1">
+                    {selectedWishlistItem ? (
+                      <div className="bg-white rounded-xl shadow p-5 sticky top-6">
+                        <div className="mb-4 pb-4 border-b border-gray-100">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <h3 className="font-bold text-dark text-lg leading-snug">{selectedWishlistItem.dish_name}</h3>
+                            <button onClick={() => setSelectedWishlistItem(null)} className="text-gray-300 hover:text-gray-500 flex-shrink-0">✕</button>
+                          </div>
+                          <p className="text-xs text-gray-400 mb-2">📍 {selectedWishlistItem.city_name}, {selectedWishlistItem.country}</p>
+                          {selectedWishlistItem.dish_description && (
+                            <p className="text-sm text-gray-600 leading-relaxed">{selectedWishlistItem.dish_description}</p>
+                          )}
+                          {selectedWishlistItem.notes && (
+                            <p className="text-xs text-amber-700 mt-2 italic">📝 {selectedWishlistItem.notes}</p>
+                          )}
+                          {(selectedWishlistItem.tags || []).length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {selectedWishlistItem.tags.slice(0, 4).map(tag => (
+                                <span key={tag} className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full text-xs">{tag}</span>
+                              ))}
+                            </div>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500">📍 {item.city_name}, {item.country}</p>
-                        {item.dish_description && (
-                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.dish_description}</p>
+
+                        <h4 className="text-sm font-semibold text-dark mb-3">Where to eat</h4>
+                        {!selectedWishlistItem.dish_id ? (
+                          <p className="text-xs text-gray-400 text-center py-4 italic">No restaurant data — discover this dish from Explore to find spots.</p>
+                        ) : loadingWishlistRestaurants ? (
+                          <p className="text-xs text-gray-400 text-center py-4">Loading restaurants…</p>
+                        ) : wishlistRestaurants.length === 0 ? (
+                          <div className="text-center py-6">
+                            {rankingWishlistRestaurants ? (
+                              <>
+                                <div className="text-2xl mb-2 animate-pulse">🌍</div>
+                                <p className="text-xs text-gray-500 mb-1">{rankingWishlistStatus}</p>
+                                <p className="text-xs text-gray-400">Usually 20–40 seconds…</p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="text-xs text-gray-400 mb-3">No restaurants found yet.</p>
+                                <button
+                                  onClick={() => findWishlistRestaurants(selectedWishlistItem!)}
+                                  className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700"
+                                >
+                                  🔍 Find restaurants
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {wishlistRestaurants.map(r => (
+                              <div key={r.id} className="rounded-lg border border-gray-100 hover:border-primary p-3 transition-all">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
+                                  {r.google_rating && (
+                                    <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>
+                                  )}
+                                </div>
+                                {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
+                                {r.rank_rationale && (
+                                  <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
+                                )}
+                                {r.google_maps_url && (
+                                  <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:underline">
+                                    📍 Maps
+                                  </a>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )}
-                        {item.notes && (
-                          <p className="text-xs text-amber-700 mt-1 italic">📝 {item.notes}</p>
-                        )}
-                        <p className="text-xs text-gray-400 mt-1">
-                          Saved {new Date(item.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                        </p>
                       </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Link href="/explore">
-                          <button className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors">
-                            Explore →
-                          </button>
-                        </Link>
-                        <button
-                          onClick={() => setConfirmDeleteWishlistId(item.id)}
-                          className="text-xs px-3 py-1.5 border border-red-200 text-red-400 rounded-lg hover:border-red-400 hover:text-red-600"
-                        >
-                          Remove
-                        </button>
+                    ) : (
+                      <div className="bg-white rounded-xl shadow p-8 text-center text-gray-400">
+                        <div className="text-4xl mb-3">👆</div>
+                        <p className="text-sm">Click a dish to see where to eat it</p>
                       </div>
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </div>
               )}
             </div>
