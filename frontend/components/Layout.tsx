@@ -38,15 +38,14 @@ export default function Layout({ children }: LayoutProps) {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
               <div className="flex items-center gap-8">
-                <Link href="/dashboard" className="flex items-center">
+                <Link href="/explore" className="flex items-center">
                   <h1 className="text-xl font-bold text-dark">
                     🍜 <span className="text-primary">Local Taste</span>
                   </h1>
                 </Link>
                 <div className="hidden md:flex items-center gap-6">
-                  {navLink("/dashboard", "Dashboard")}
                   {navLink("/explore", "Explore")}
-                  {navLink("/itinerary", "My Trip")}
+                  {navLink("/itinerary", "My Trips")}
                   {navLink("/passport", "My Passport")}
                 </div>
               </div>
@@ -59,9 +58,8 @@ export default function Layout({ children }: LayoutProps) {
             </div>
             {/* Mobile nav */}
             <div className="md:hidden flex items-center gap-4 pb-3">
-              {navLink("/dashboard", "Dashboard")}
               {navLink("/explore", "Explore")}
-              {navLink("/itinerary", "My Trip")}
+              {navLink("/itinerary", "My Trips")}
               {navLink("/passport", "Passport")}
             </div>
           </div>

@@ -5,7 +5,7 @@ export default function Custom500() {
   return (
     <>
       <Head>
-        <title>500 - Server Error | Alex AI Financial Advisor</title>
+        <title>500 - Server Error | Local Taste</title>
       </Head>
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="text-center">
@@ -14,9 +14,9 @@ export default function Custom500() {
           <p className="text-gray-600 mb-8">
             Something went wrong on our end. Please try again later.
           </p>
-          <Link href="/dashboard">
+          <Link href="/explore">
             <button className="bg-primary hover:bg-blue-600 text-white px-6 py-3 rounded-lg transition-colors">
-              Return to Dashboard
+              Go to Explore
             </button>
           </Link>
         </div>

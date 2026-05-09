@@ -91,15 +91,32 @@ export default function Explore() {
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
   const [addedToTripKeys, setAddedToTripKeys] = useState<Set<string>>(new Set());
+  const [wishlistDishIds, setWishlistDishIds] = useState<Set<string>>(new Set());
 
-  // Load user dietary preferences and itinerary dish IDs once Clerk has initialized
+  // Save-to modal state
+  const [saveModal, setSaveModal] = useState<{
+    dishId: string | null;
+    dishName: string;
+    cityName: string;
+    country: string;
+  } | null>(null);
+  const [saveNotes, setSaveNotes] = useState("");
+  const [saveDestination, setSaveDestination] = useState<"wishlist" | "trip">("wishlist");
+  const [selectedItineraryId, setSelectedItineraryId] = useState<string>("");
+  const [newTripName, setNewTripName] = useState("");
+  const [itineraries, setItineraries] = useState<{id: string; name: string}[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Load user prefs + itinerary dish IDs + itineraries once auth ready
   useEffect(() => {
     if (!isUserLoaded) return;
     getToken().then(async token => {
       if (!token) return;
-      const [userRes, itineraryRes] = await Promise.all([
-        fetch(`${API_URL}/api/user`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/itinerary`, { headers: { Authorization: `Bearer ${token}` } }),
+      const [userRes, itineraryRes, itinerariesRes, wishlistRes] = await Promise.all([
+        fetch(`${API_URL}/api/user`,        { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/itinerary`,   { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/itineraries`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/wishlist`,    { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (userRes.ok) {
         const data = await userRes.json();
@@ -108,6 +125,14 @@ export default function Explore() {
       if (itineraryRes.ok) {
         const data = await itineraryRes.json();
         setItineraryDishIds(new Set((data.items || []).map((i: {dish_id: string}) => i.dish_id)));
+      }
+      if (itinerariesRes.ok) {
+        const data = await itinerariesRes.json();
+        setItineraries(data.itineraries || []);
+      }
+      if (wishlistRes.ok) {
+        const data = await wishlistRes.json();
+        setWishlistDishIds(new Set((data.items || []).filter((i: {dish_id: string | null}) => i.dish_id).map((i: {dish_id: string}) => i.dish_id)));
       }
     }).catch(() => { /* silent */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -297,39 +322,70 @@ export default function Explore() {
     }
   };
 
-  const handleAddToItinerary = async (dish: Dish) => {
-    try {
-      const token = await getToken();
-      await fetch(`${API_URL}/api/itinerary`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: dish.id }),
-      });
-      setItineraryDishIds(prev => new Set([...prev, dish.id]));
-      showToast("success", `"${dish.name}" added to your trip!`);
-    } catch {
-      showToast("error", "Failed to add to trip.");
-    }
+  const openSaveModal = (dish: Dish | null, overrideCityName?: string, overrideCountry?: string) => {
+    const dishName = dish ? dish.name : categoryLabel;
+    const cName = overrideCityName ?? city?.name ?? cityInput;
+    const cCountry = overrideCountry ?? city?.country ?? countryInput;
+    setSaveNotes("");
+    setSaveDestination("wishlist");
+    setSelectedItineraryId(itineraries[0]?.id ?? "");
+    setNewTripName("");
+    setSaveModal({ dishId: dish?.id ?? null, dishName, cityName: cName, country: cCountry });
   };
 
-  const handleAddRestaurantToTrip = async (restaurantName: string) => {
-    const dishName = selectedDish ? selectedDish.name : categoryLabel;
-    const key = `${dishName}|${cityInput}`;
+  const confirmSave = async () => {
+    if (!saveModal) return;
+    setSaving(true);
     try {
       const token = await getToken();
-      const body = selectedDish
-        ? { dish_id: selectedDish.id }
-        : { dish_name: dishName, city_name: cityInput.trim(), country: countryInput.trim() };
-      await fetch(`${API_URL}/api/itinerary`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      setAddedToTripKeys(prev => new Set([...prev, key]));
-      if (selectedDish) setItineraryDishIds(prev => new Set([...prev, selectedDish.id]));
-      showToast("success", `Added to your trip!`);
+      const baseBody = saveModal.dishId
+        ? { dish_id: saveModal.dishId, notes: saveNotes || undefined }
+        : { dish_name: saveModal.dishName, city_name: saveModal.cityName, country: saveModal.country, notes: saveNotes || undefined };
+
+      if (saveDestination === "wishlist") {
+        const res = await fetch(`${API_URL}/api/wishlist`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(baseBody),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        if (saveModal.dishId) setWishlistDishIds(prev => new Set([...prev, saveModal.dishId!]));
+        showToast("success", `"${saveModal.dishName}" added to your Wishlist!`);
+      } else {
+        let itineraryId = selectedItineraryId;
+
+        if (!itineraryId) {
+          // Create a new trip
+          const name = newTripName.trim() || "My Trip";
+          const createRes = await fetch(`${API_URL}/api/itineraries`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+          if (!createRes.ok) throw new Error(await createRes.text());
+          const created = await createRes.json();
+          itineraryId = created.id;
+          setItineraries(prev => [...prev, { id: created.id, name: created.name }]);
+        }
+
+        const res = await fetch(`${API_URL}/api/itineraries/${itineraryId}/items`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(baseBody),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const key = `${saveModal.dishName}|${saveModal.cityName}`;
+        setAddedToTripKeys(prev => new Set([...prev, key]));
+        if (saveModal.dishId) setItineraryDishIds(prev => new Set([...prev, saveModal.dishId!]));
+        const tripName = itineraries.find(t => t.id === itineraryId)?.name ?? (newTripName.trim() || "My Trip");
+        showToast("success", `"${saveModal.dishName}" added to "${tripName}"!`);
+      }
+
+      setSaveModal(null);
     } catch {
-      showToast("error", "Failed to add to trip.");
+      showToast("error", "Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -658,17 +714,17 @@ export default function Explore() {
                           >
                             Where to eat →
                           </button>
-                          {itineraryDishIds.has(dish.id) ? (
+                          {wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id) ? (
                             <span className="text-xs px-4 py-2 bg-green-50 text-green-700 rounded-lg border border-green-200 text-center font-medium">
-                              ✓ In my trip
+                              ✓ Saved
                             </span>
                           ) : (
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleAddToItinerary(dish); }}
+                              onClick={(e) => { e.stopPropagation(); openSaveModal(dish); }}
                               className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors text-center"
-                              title="Add to my trip"
+                              title="Save to wishlist or trip"
                             >
-                              🗺️ Add to trip
+                              🗺️ Save
                             </button>
                           )}
                           {!dish.in_passport && (
@@ -810,17 +866,18 @@ export default function Explore() {
                             )}
                             {(() => {
                               const key = `${selectedDish ? selectedDish.name : categoryLabel}|${cityInput}`;
-                              const alreadyAdded = addedToTripKeys.has(key) || (selectedDish ? itineraryDishIds.has(selectedDish.id) : false);
-                              return alreadyAdded ? (
+                              const alreadySaved = addedToTripKeys.has(key)
+                                || (selectedDish ? (itineraryDishIds.has(selectedDish.id) || wishlistDishIds.has(selectedDish.id)) : false);
+                              return alreadySaved ? (
                                 <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
-                                  ✓ In my trip
+                                  ✓ Saved
                                 </span>
                               ) : (
                                 <button
-                                  onClick={() => handleAddRestaurantToTrip(r.name)}
+                                  onClick={() => openSaveModal(selectedDish, cityInput.trim(), countryInput.trim())}
                                   className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
                                 >
-                                  🗺️ Add to trip
+                                  🗺️ Save
                                 </button>
                               );
                             })()}
@@ -835,6 +892,125 @@ export default function Explore() {
             </div>
           )}
         </div>
+        {/* Save modal */}
+        {saveModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+              <h2 className="text-lg font-bold text-dark mb-1">Save this dish</h2>
+              <p className="text-sm text-gray-500 mb-5">
+                <span className="font-medium text-gray-800">{saveModal.dishName}</span>
+                {" · "}{saveModal.cityName}, {saveModal.country}
+              </p>
+
+              {/* Destination toggle */}
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                <button
+                  type="button"
+                  onClick={() => setSaveDestination("wishlist")}
+                  className={`flex flex-col items-center gap-1 py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                    saveDestination === "wishlist"
+                      ? "border-primary bg-purple-50 text-primary"
+                      : "border-gray-200 text-gray-600 hover:border-purple-200"
+                  }`}
+                >
+                  <span className="text-xl">⭐</span>
+                  <span>Wishlist</span>
+                  <span className="text-xs font-normal text-gray-400">Plan for later</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSaveDestination("trip")}
+                  className={`flex flex-col items-center gap-1 py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                    saveDestination === "trip"
+                      ? "border-primary bg-purple-50 text-primary"
+                      : "border-gray-200 text-gray-600 hover:border-purple-200"
+                  }`}
+                >
+                  <span className="text-xl">🗺️</span>
+                  <span>A Trip</span>
+                  <span className="text-xs font-normal text-gray-400">Add to itinerary</span>
+                </button>
+              </div>
+
+              {/* Trip picker */}
+              {saveDestination === "trip" && (
+                <div className="mb-4">
+                  {itineraries.length > 0 ? (
+                    <div className="space-y-2 mb-3">
+                      {itineraries.map(t => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setSelectedItineraryId(t.id)}
+                          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                            selectedItineraryId === t.id
+                              ? "border-primary bg-purple-50 text-primary font-semibold"
+                              : "border-gray-200 text-gray-700 hover:border-purple-200"
+                          }`}
+                        >
+                          <span>🗺️</span> {t.name}
+                          {selectedItineraryId === t.id && <span className="ml-auto text-xs">✓</span>}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedItineraryId("")}
+                        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                          selectedItineraryId === ""
+                            ? "border-primary bg-purple-50 text-primary font-semibold"
+                            : "border-gray-200 text-gray-500 hover:border-purple-200"
+                        }`}
+                      >
+                        <span>＋</span> New trip…
+                        {selectedItineraryId === "" && <span className="ml-auto text-xs">✓</span>}
+                      </button>
+                    </div>
+                  ) : null}
+                  {(selectedItineraryId === "" || itineraries.length === 0) && (
+                    <input
+                      type="text"
+                      value={newTripName}
+                      onChange={e => setNewTripName(e.target.value)}
+                      placeholder="Trip name (e.g. Tokyo 2026)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Notes */}
+              <div className="mb-5">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={saveNotes}
+                  onChange={e => setSaveNotes(e.target.value)}
+                  placeholder="e.g. try the spicy version, go at lunch…"
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={confirmSave}
+                  disabled={saving}
+                  className="flex-1 px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold transition-colors"
+                >
+                  {saving ? "Saving…" : saveDestination === "wishlist" ? "⭐ Add to Wishlist" : "🗺️ Add to Trip"}
+                </button>
+                <button
+                  onClick={() => setSaveModal(null)}
+                  disabled={saving}
+                  className="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-lg hover:border-gray-400 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </Layout>
     </>
   );

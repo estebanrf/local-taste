@@ -30,7 +30,7 @@ export default function Home() {
               </SignedOut>
               <SignedIn>
                 <div className="flex items-center gap-4">
-                  <Link href="/dashboard">
+                  <Link href="/explore">
                     <button className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors">
                       Open App
                     </button>

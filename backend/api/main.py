@@ -22,7 +22,9 @@ from src.schemas import (
     UserUpdate,
     PassportEntryCreate,
     PassportEntryUpdate,
+    ItineraryCreate,
     ItineraryItemCreate,
+    WishlistItemCreate,
     JobType, JobStatus,
 )
 
@@ -448,23 +450,76 @@ async def delete_passport_entry(entry_id: str, clerk_user_id: str = Depends(get_
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Itinerary ──────────────────────────────────────────────────────────────────
+# ── Named itineraries ─────────────────────────────────────────────────────────
 
-@app.get("/api/itinerary")
-async def get_itinerary(clerk_user_id: str = Depends(get_current_user_id)):
+@app.get("/api/itineraries")
+async def list_itineraries(clerk_user_id: str = Depends(get_current_user_id)):
     try:
-        items = db.itinerary.find_by_user(clerk_user_id)
-        return {"items": items}
+        return {"itineraries": db.itineraries.find_by_user(clerk_user_id)}
     except Exception as e:
-        logger.error(f"Error fetching itinerary: {e}")
+        logger.error(f"Error listing itineraries: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/itinerary")
-async def add_itinerary_item(item: ItineraryItemCreate, clerk_user_id: str = Depends(get_current_user_id)):
+@app.post("/api/itineraries")
+async def create_itinerary(body: ItineraryCreate, clerk_user_id: str = Depends(get_current_user_id)):
     try:
+        itinerary_id = db.itineraries.create_itinerary(clerk_user_id, body.name.strip())
+        logger.info(f"Created itinerary id={itinerary_id} user={clerk_user_id}")
+        return {"id": str(itinerary_id), "name": body.name.strip()}
+    except Exception as e:
+        logger.error(f"Error creating itinerary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/itineraries/{itinerary_id}")
+async def delete_itinerary(itinerary_id: str, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        row = db.itineraries.find_by_id(itinerary_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Itinerary not found")
+        if row.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db.itineraries.delete_itinerary(itinerary_id)
+        return {"message": "Itinerary deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting itinerary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/itineraries/{itinerary_id}/items")
+async def get_itinerary_items(itinerary_id: str, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        row = db.itineraries.find_by_id(itinerary_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Itinerary not found")
+        if row.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        items = db.itinerary.find_by_itinerary(itinerary_id)
+        return {"itinerary": row, "items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching itinerary items: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/itineraries/{itinerary_id}/items")
+async def add_item_to_itinerary(
+    itinerary_id: str,
+    item: ItineraryItemCreate,
+    clerk_user_id: str = Depends(get_current_user_id),
+):
+    try:
+        row = db.itineraries.find_by_id(itinerary_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Itinerary not found")
+        if row.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
         if item.dish_id:
-            # Local dish flow — resolve name/city from DB
             dish = db.dishes.find_by_id(item.dish_id)
             if not dish:
                 raise HTTPException(status_code=404, detail="Dish not found")
@@ -474,31 +529,33 @@ async def add_itinerary_item(item: ItineraryItemCreate, clerk_user_id: str = Dep
             dish_name = dish["name"]
             city_name = city["name"]
             country = city["country"]
-
-            existing = db.itinerary.find_by_user_and_dish(clerk_user_id, item.dish_id)
-            if existing:
-                return existing
         else:
-            # Free-form flow — caller provides name/city directly
             if not item.dish_name or not item.city_name or not item.country:
-                raise HTTPException(status_code=400, detail="dish_name, city_name, and country are required when dish_id is not provided")
+                raise HTTPException(status_code=400, detail="dish_name, city_name, and country required")
             dish_name = item.dish_name
             city_name = item.city_name
             country = item.country
 
-        db.itinerary.create_item(
-            clerk_user_id=clerk_user_id,
-            item=item,
-            dish_name=dish_name,
-            city_name=city_name,
-            country=country,
-        )
-        logger.info(f"Itinerary: added dish={dish_name} city={city_name} user={clerk_user_id}")
-        return {"ok": True}
+        item.itinerary_id = itinerary_id
+        item_id = db.itinerary.create_item(clerk_user_id=clerk_user_id, item=item, dish_name=dish_name, city_name=city_name, country=country)
+        logger.info(f"Itinerary {itinerary_id}: added {dish_name} user={clerk_user_id}")
+        return {"id": str(item_id), "ok": True}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error adding itinerary item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Itinerary items (legacy flat endpoint kept for backwards compat) ───────────
+
+@app.get("/api/itinerary")
+async def get_itinerary(clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        items = db.itinerary.find_by_user(clerk_user_id)
+        return {"items": items}
+    except Exception as e:
+        logger.error(f"Error fetching itinerary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -516,6 +573,68 @@ async def delete_itinerary_item(item_id: str, clerk_user_id: str = Depends(get_c
         raise
     except Exception as e:
         logger.error(f"Error deleting itinerary item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Wishlist ───────────────────────────────────────────────────────────────────
+
+@app.get("/api/wishlist")
+async def get_wishlist(clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        items = db.wishlist.find_by_user(clerk_user_id)
+        return {"items": items}
+    except Exception as e:
+        logger.error(f"Error fetching wishlist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/wishlist")
+async def add_wishlist_item(item: WishlistItemCreate, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        if item.dish_id:
+            dish = db.dishes.find_by_id(item.dish_id)
+            if not dish:
+                raise HTTPException(status_code=404, detail="Dish not found")
+            city = db.cities.find_by_id(dish["city_id"])
+            if not city:
+                raise HTTPException(status_code=404, detail="City not found")
+            dish_name = dish["name"]
+            city_name = city["name"]
+            country = city["country"]
+            existing = db.wishlist.find_by_user_and_dish(clerk_user_id, item.dish_id)
+            if existing:
+                return {"id": existing["id"], "ok": True, "already_exists": True}
+        else:
+            if not item.dish_name or not item.city_name or not item.country:
+                raise HTTPException(status_code=400, detail="dish_name, city_name, and country required")
+            dish_name = item.dish_name
+            city_name = item.city_name
+            country = item.country
+
+        item_id = db.wishlist.create_item(clerk_user_id=clerk_user_id, item=item, dish_name=dish_name, city_name=city_name, country=country)
+        logger.info(f"Wishlist: added {dish_name} user={clerk_user_id}")
+        return {"id": str(item_id), "ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding wishlist item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/wishlist/{item_id}")
+async def delete_wishlist_item(item_id: str, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        item = db.wishlist.find_by_id(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Wishlist item not found")
+        if item.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db.wishlist.delete_item(item_id)
+        return {"message": "Removed from wishlist"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting wishlist item: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

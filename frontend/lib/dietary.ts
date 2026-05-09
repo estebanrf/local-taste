@@ -9,7 +9,8 @@ export const DIETARY_OPTIONS = [
   { id: "no-pork",     label: "No pork",              emoji: "🐷" },
 ];
 
-export function parseDietaryPrefs(raw: string | null | undefined): string[] {
+export function parseDietaryPrefs(raw: string | string[] | null | undefined): string[] {
   if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
   try { return JSON.parse(raw); } catch { return []; }
 }

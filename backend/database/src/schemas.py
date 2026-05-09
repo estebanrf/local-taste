@@ -104,7 +104,22 @@ class UserUpdate(BaseModel):
 
 # ── Itinerary ─────────────────────────────────────────────────────────────────
 
+class ItineraryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
 class ItineraryItemCreate(BaseModel):
+    dish_id: Optional[str] = None
+    dish_name: Optional[str] = None
+    city_name: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
+    itinerary_id: Optional[str] = None
+
+
+# ── Wishlist ───────────────────────────────────────────────────────────────────
+
+class WishlistItemCreate(BaseModel):
     dish_id: Optional[str] = None
     dish_name: Optional[str] = None
     city_name: Optional[str] = None

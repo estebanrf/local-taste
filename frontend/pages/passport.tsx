@@ -8,6 +8,19 @@ import Link from "next/link";
 import Head from "next/head";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
 
+interface WishlistItem {
+  id: string;
+  dish_id: string | null;
+  dish_name: string;
+  city_name: string;
+  country: string;
+  notes: string | null;
+  cuisine_type: string | null;
+  dish_description: string | null;
+  tags: string[];
+  created_at: string;
+}
+
 interface PassportEntry {
   id: string;
   dish_id: string;
@@ -42,12 +55,20 @@ export default function Passport() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
 
+  const [displayName, setDisplayName] = useState("");
+  const [homeCity, setHomeCity] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
+  const [confirmDeleteWishlistId, setConfirmDeleteWishlistId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"passport" | "wishlist">("passport");
+
   const load = async () => {
     try {
       const token = await getToken();
-      const [passportRes, userRes] = await Promise.all([
-        fetch(`${API_URL}/api/passport`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/user`,     { headers: { Authorization: `Bearer ${token}` } }),
+      const [passportRes, userRes, wishlistRes] = await Promise.all([
+        fetch(`${API_URL}/api/passport`,  { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/user`,      { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/wishlist`,  { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (passportRes.ok) {
         const data = await passportRes.json();
@@ -56,7 +77,14 @@ export default function Passport() {
       }
       if (userRes.ok) {
         const userData = await userRes.json();
-        setDietaryPrefs(parseDietaryPrefs(userData.user?.dietary_notes));
+        const u = userData.user;
+        setDietaryPrefs(parseDietaryPrefs(u?.dietary_notes));
+        setDisplayName(u?.display_name || "");
+        setHomeCity(u?.home_city || "");
+      }
+      if (wishlistRes.ok) {
+        const data = await wishlistRes.json();
+        setWishlistItems(data.items || []);
       }
     } catch { /* silent */ } finally {
       setLoading(false);
@@ -75,14 +103,54 @@ export default function Passport() {
     setDietaryPrefs(next);
     try {
       const token = await getToken();
-      await fetch(`${API_URL}/api/user`, {
+      const res = await fetch(`${API_URL}/api/user`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ dietary_notes: JSON.stringify(next) }),
       });
+      if (!res.ok) throw new Error(await res.text());
       showToast("success", "Preferences saved");
     } catch {
+      setDietaryPrefs(dietaryPrefs); // roll back optimistic update
       showToast("error", "Failed to save preferences.");
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!displayName.trim()) {
+      showToast("error", "Display name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/user`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName.trim(), home_city: homeCity || null, dietary_notes: JSON.stringify(dietaryPrefs) }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      showToast("success", "Profile saved!");
+    } catch {
+      showToast("error", "Failed to save profile");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteWishlistItem = async (id: string) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/wishlist/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setConfirmDeleteWishlistId(null);
+      setWishlistItems(prev => prev.filter(i => i.id !== id));
+      showToast("success", "Removed from wishlist.");
+    } catch {
+      showToast("error", "Failed to remove.");
     }
   };
 
@@ -182,6 +250,116 @@ export default function Passport() {
               </div>
             </div>
           )}
+
+          {/* Tabs */}
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setActiveTab("passport")}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === "passport" ? "bg-primary text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-primary hover:text-primary"
+              }`}
+            >
+              🛂 Food Passport {stats ? `(${stats.total_dishes})` : ""}
+            </button>
+            <button
+              onClick={() => setActiveTab("wishlist")}
+              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === "wishlist" ? "bg-primary text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-primary hover:text-primary"
+              }`}
+            >
+              ⭐ Wishlist {wishlistItems.length > 0 ? `(${wishlistItems.length})` : ""}
+            </button>
+          </div>
+
+          {activeTab === "wishlist" && (
+            <div className="mb-8">
+              {wishlistItems.length === 0 ? (
+                <div className="bg-white rounded-lg shadow p-12 text-center">
+                  <div className="text-5xl mb-4">⭐</div>
+                  <h2 className="text-xl font-semibold text-dark mb-2">Your wishlist is empty</h2>
+                  <p className="text-gray-500 mb-6">Save dishes from Explore to try later.</p>
+                  <Link href="/explore">
+                    <button className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 font-semibold">
+                      Explore a City
+                    </button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {wishlistItems.map(item => (
+                    <div key={item.id} className="bg-white rounded-lg shadow p-4 flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h3 className="font-semibold text-dark">{item.dish_name}</h3>
+                          {item.cuisine_type && (
+                            <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">{item.cuisine_type}</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500">📍 {item.city_name}, {item.country}</p>
+                        {item.dish_description && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.dish_description}</p>
+                        )}
+                        {item.notes && (
+                          <p className="text-xs text-amber-700 mt-1 italic">📝 {item.notes}</p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                          Saved {new Date(item.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Link href="/explore">
+                          <button className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors">
+                            Explore →
+                          </button>
+                        </Link>
+                        <button
+                          onClick={() => setConfirmDeleteWishlistId(item.id)}
+                          className="text-xs px-3 py-1.5 border border-red-200 text-red-400 rounded-lg hover:border-red-400 hover:text-red-600"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "passport" && (
+          <>
+          {/* Profile */}
+          <div className="bg-white rounded-xl shadow p-6 mb-8">
+            <h2 className="text-lg font-bold text-dark mb-4">Profile</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Home City</label>
+                <input
+                  type="text"
+                  value={homeCity}
+                  onChange={(e) => setHomeCity(e.target.value)}
+                  placeholder="e.g. Barcelona, Spain"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleSaveProfile}
+              disabled={saving}
+              className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium transition-colors text-sm"
+            >
+              {saving ? "Saving…" : "Save Profile"}
+            </button>
+          </div>
 
           {/* Dietary preferences */}
           <div className="bg-white rounded-xl shadow p-6 mb-8">
@@ -312,6 +490,8 @@ export default function Passport() {
               ))}
             </div>
           )}
+          </>
+          )}
         </div>
 
         {confirmDeleteId && (
@@ -321,6 +501,15 @@ export default function Passport() {
             message="Remove this dish from your passport?"
             onConfirm={() => handleDelete(confirmDeleteId)}
             onCancel={() => setConfirmDeleteId(null)}
+          />
+        )}
+        {confirmDeleteWishlistId && (
+          <ConfirmModal
+            isOpen={true}
+            title="Remove from Wishlist"
+            message="Remove this dish from your wishlist?"
+            onConfirm={() => handleDeleteWishlistItem(confirmDeleteWishlistId)}
+            onCancel={() => setConfirmDeleteWishlistId(null)}
           />
         )}
       </Layout>
