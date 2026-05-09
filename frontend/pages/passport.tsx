@@ -114,6 +114,13 @@ export default function Passport() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUserLoaded]);
 
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible" && isUserLoaded) load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUserLoaded]);
+
   const toggleDietaryPref = async (id: string) => {
     const next = dietaryPrefs.includes(id)
       ? dietaryPrefs.filter(p => p !== id)
@@ -175,6 +182,8 @@ export default function Passport() {
   const openWishlistItem = async (item: WishlistItem) => {
     setSelectedWishlistItem(item);
     setWishlistRestaurants([]);
+    setRankingWishlistRestaurants(false);
+    setRankingWishlistStatus("");
     if (!item.dish_id) return;
     setLoadingWishlistRestaurants(true);
     try {
@@ -195,15 +204,18 @@ export default function Passport() {
   };
 
   const findWishlistRestaurants = async (item: WishlistItem) => {
-    if (!item.dish_id) return;
     setRankingWishlistRestaurants(true);
     setRankingWishlistStatus("Finding the best spots…");
     try {
       const token = await getToken();
-      const res = await fetch(`${API_URL}/api/rank-restaurants`, {
+      const endpoint = item.dish_id ? "/api/rank-restaurants" : "/api/rank-by-category";
+      const body = item.dish_id
+        ? { dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }
+        : { category: item.dish_name, city: item.city_name, country: item.country };
+      const res = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
       const { job_id } = await res.json();
@@ -217,7 +229,13 @@ export default function Passport() {
             clearInterval(interval);
             setRankingWishlistRestaurants(false);
             setRankingWishlistStatus("");
-            await openWishlistItem(item);
+            if (item.dish_id) {
+              await openWishlistItem(item);
+            } else {
+              const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
+              const rList = (rPayload.restaurants as Restaurant[]) || [];
+              setWishlistRestaurants([...rList].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0)));
+            }
           } else if (job.status === "failed") {
             clearInterval(interval);
             setRankingWishlistRestaurants(false);
@@ -270,16 +288,6 @@ export default function Passport() {
     } catch {
       showToast("error", "Failed to delete.");
     }
-  };
-
-  const groupByCityCountry = () => {
-    const groups: Record<string, { city: string; country: string; entries: PassportEntry[] }> = {};
-    entries.forEach((e) => {
-      const key = `${e.city_name}|${e.country}`;
-      if (!groups[key]) groups[key] = { city: e.city_name, country: e.country, entries: [] };
-      groups[key].entries.push(e);
-    });
-    return Object.values(groups);
   };
 
   const StarRating = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => (
@@ -434,7 +442,49 @@ export default function Passport() {
 
                         <h4 className="text-sm font-semibold text-dark mb-3">Where to eat</h4>
                         {!selectedWishlistItem.dish_id ? (
-                          <p className="text-xs text-gray-400 text-center py-4 italic">No restaurant data — discover this dish from Explore to find spots.</p>
+                          <div className="text-center py-6">
+                            {rankingWishlistRestaurants ? (
+                              <>
+                                <div className="text-2xl mb-2 animate-pulse">🌍</div>
+                                <p className="text-xs text-gray-500 mb-1">{rankingWishlistStatus}</p>
+                                <p className="text-xs text-gray-400">Usually 20–40 seconds…</p>
+                              </>
+                            ) : wishlistRestaurants.length > 0 ? null : (
+                              <>
+                                <p className="text-xs text-gray-400 mb-3">No restaurants found yet.</p>
+                                <button
+                                  onClick={() => findWishlistRestaurants(selectedWishlistItem!)}
+                                  className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700"
+                                >
+                                  🔍 Find restaurants
+                                </button>
+                              </>
+                            )}
+                            {wishlistRestaurants.length > 0 && (
+                              <div className="space-y-3 text-left">
+                                {wishlistRestaurants.map(r => (
+                                  <div key={r.id} className="rounded-lg border border-gray-100 hover:border-primary p-3 transition-all">
+                                    <div className="flex items-start justify-between gap-2 mb-1">
+                                      <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
+                                      {r.google_rating && (
+                                        <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>
+                                      )}
+                                    </div>
+                                    {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
+                                    {r.rank_rationale && (
+                                      <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
+                                    )}
+                                    {r.google_maps_url && (
+                                      <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer"
+                                        className="text-xs text-blue-600 hover:underline">
+                                        📍 Maps
+                                      </a>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         ) : loadingWishlistRestaurants ? (
                           <p className="text-xs text-gray-400 text-center py-4">Loading restaurants…</p>
                         ) : wishlistRestaurants.length === 0 ? (
@@ -572,88 +622,79 @@ export default function Passport() {
               </Link>
             </div>
           ) : (
-            <div className="space-y-8">
-              {groupByCityCountry().map((group) => (
-                <div key={`${group.city}|${group.country}`}>
-                  <h2 className="text-xl font-bold text-dark mb-3 flex items-center gap-2">
-                    📍 {group.city}, {group.country}
-                    <span className="text-sm font-normal text-gray-500">
-                      {group.entries.length} dish{group.entries.length !== 1 ? "es" : ""}
-                    </span>
-                  </h2>
-                  <div className="space-y-3">
-                    {group.entries.map((entry) => (
-                      <div key={entry.id} className="bg-white rounded-lg shadow p-4">
-                        {editingId === entry.id ? (
-                          <div>
-                            <p className="font-semibold text-dark mb-3">{entry.dish_name}</p>
-                            <div className="mb-3">
-                              <label className="text-sm text-gray-600 mb-1 block">Your rating</label>
-                              <StarRating value={editRating} onChange={setEditRating} />
-                            </div>
-                            <textarea
-                              value={editNotes}
-                              onChange={(e) => setEditNotes(e.target.value)}
-                              placeholder="Notes, memories, recommendations…"
-                              rows={2}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary mb-3"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => saveEdit(entry.id)}
-                                className="px-4 py-1.5 bg-primary text-white rounded-lg text-sm hover:bg-purple-700"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingId(null)}
-                                className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-sm hover:border-gray-400"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3 className="font-semibold text-dark">{entry.dish_name}</h3>
-                                {entry.cuisine_type && (
-                                  <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">{entry.cuisine_type}</span>
-                                )}
-                              </div>
-                              {entry.restaurant_name && (
-                                <p className="text-sm text-gray-500">at {entry.restaurant_name}</p>
-                              )}
-                              {entry.rating && (
-                                <p className="text-violet-400 mt-1">{"★".repeat(entry.rating)}{"☆".repeat(5 - entry.rating)}</p>
-                              )}
-                              {entry.notes && (
-                                <p className="text-sm text-gray-600 mt-1 italic">&ldquo;{entry.notes}&rdquo;</p>
-                              )}
-                              <p className="text-xs text-gray-400 mt-2">
-                                {new Date(entry.tasted_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
-                              </p>
-                            </div>
-                            <div className="flex gap-2 flex-shrink-0">
-                              <button
-                                onClick={() => startEdit(entry)}
-                                className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteId(entry.id)}
-                                className="text-xs px-3 py-1.5 border border-red-200 text-red-400 rounded-lg hover:border-red-400 hover:text-red-600"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        )}
+            <div className="space-y-3">
+              {entries.map((entry) => (
+                <div key={entry.id} className="bg-white rounded-lg shadow p-4">
+                  {editingId === entry.id ? (
+                    <div>
+                      <p className="font-semibold text-dark mb-1">{entry.dish_name}</p>
+                      <p className="text-xs text-gray-400 mb-3">📍 {entry.city_name}, {entry.country}</p>
+                      <div className="mb-3">
+                        <label className="text-sm text-gray-600 mb-1 block">Your rating</label>
+                        <StarRating value={editRating} onChange={setEditRating} />
                       </div>
-                    ))}
-                  </div>
+                      <textarea
+                        value={editNotes}
+                        onChange={(e) => setEditNotes(e.target.value)}
+                        placeholder="Notes, memories, recommendations…"
+                        rows={2}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary mb-3"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveEdit(entry.id)}
+                          className="px-4 py-1.5 bg-primary text-white rounded-lg text-sm hover:bg-purple-700"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-sm hover:border-gray-400"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <h3 className="font-semibold text-dark">
+                            {entry.dish_name} <span className="font-normal text-gray-500">in</span> {entry.city_name}, {entry.country}
+                          </h3>
+                        </div>
+                        {entry.cuisine_type && (
+                          <span className="inline-block px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs mb-1">{entry.cuisine_type}</span>
+                        )}
+                        {entry.restaurant_name && (
+                          <p className="text-sm text-gray-500">at {entry.restaurant_name}</p>
+                        )}
+                        {entry.rating && (
+                          <p className="text-violet-400 mt-1">{"★".repeat(entry.rating)}{"☆".repeat(5 - entry.rating)}</p>
+                        )}
+                        {entry.notes && (
+                          <p className="text-sm text-gray-600 mt-1 italic">&ldquo;{entry.notes}&rdquo;</p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(entry.tasted_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => startEdit(entry)}
+                          className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(entry.id)}
+                          className="text-xs px-3 py-1.5 border border-red-200 text-red-400 rounded-lg hover:border-red-400 hover:text-red-600"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -84,6 +84,9 @@ export default function Explore() {
   const [itineraryDishIds, setItineraryDishIds] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<Stage>("idle");
   const loadingRef = useRef<HTMLDivElement>(null);
+  const dishesRef = useRef<HTMLDivElement>(null);
+  const restaurantsLoadingRef = useRef<HTMLDivElement>(null);
+  const restaurantsRef = useRef<HTMLDivElement>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [city, setCity] = useState<City | null>(null);
   const [dishes, setDishes] = useState<Dish[]>([]);
@@ -182,6 +185,7 @@ export default function Explore() {
     setCity(null);
     setSelectedDish(null);
     setRestaurants([]);
+    setTimeout(() => loadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
 
     const activeDietary = useMyPrefs ? dietaryPrefs : customPrefs;
 
@@ -250,6 +254,7 @@ export default function Explore() {
             setCity(d.city);
             setDishes(d.dishes);
             setStage("dishes");
+            setTimeout(() => dishesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
           }
         }
       });
@@ -264,7 +269,7 @@ export default function Explore() {
     setRestaurants([]);
     setStage("loading_restaurants");
     setStatusMessage(`Finding the best spots for ${dish.name}…`);
-    setTimeout(() => loadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    setTimeout(() => restaurantsLoadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
 
     try {
       const token = await getToken();
@@ -289,6 +294,7 @@ export default function Explore() {
         if (rList.length > 0) {
           setRestaurants(sortByRating(rList));
           setStage("restaurants");
+          setTimeout(() => restaurantsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
         } else {
           // Fall back to direct fetch
           const token2 = await getToken();
@@ -300,6 +306,7 @@ export default function Explore() {
             setRestaurants(sortByRating(rData.restaurants || []));
           }
           setStage("restaurants");
+          setTimeout(() => restaurantsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
         }
       });
     } catch {
@@ -436,302 +443,6 @@ export default function Explore() {
             <h1 className="text-3xl font-bold text-dark mb-2">Explore a City</h1>
             <p className="text-gray-600">Enter any city and discover its 5 must-try dishes — then find the best places to eat them.</p>
           </div>
-
-          {/* Loading state */}
-          {(stage === "searching" || stage === "loading_restaurants") && (
-            <div ref={loadingRef} className="mb-8 space-y-4">
-              {/* Dish detail banner — shown while restaurants load */}
-              {stage === "loading_restaurants" && selectedDish && (
-                <div className="bg-gradient-to-r from-purple-50 to-violet-50 rounded-xl p-6 border border-purple-100">
-                  <div className="flex items-start gap-4">
-                    <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
-                      selectedDish.rank === 1 ? "bg-violet-500 text-white" :
-                      selectedDish.rank === 2 ? "bg-purple-400 text-white" :
-                      selectedDish.rank === 3 ? "bg-purple-300 text-white" : "bg-purple-100 text-purple-700"
-                    }`}>
-                      {selectedDish.rank}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-xl font-bold text-dark mb-1">{selectedDish.name}</h3>
-                      {selectedDish.cuisine_type && (
-                        <p className="text-xs text-purple-500 font-medium mb-2">{selectedDish.cuisine_type}</p>
-                      )}
-                      <p className="text-gray-600 leading-relaxed">{selectedDish.description}</p>
-                      {selectedDish.tags.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1">
-                          {selectedDish.tags.map(tag => (
-                            <span key={tag} className="px-2 py-0.5 bg-white text-purple-600 rounded-full text-xs font-medium border border-purple-100">{tag}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Spinner */}
-              <div className="bg-white rounded-lg shadow p-10 text-center">
-                <div className="text-4xl mb-4 animate-strong-pulse">🌍</div>
-                <p className="text-lg font-medium text-gray-700 mb-2">{statusMessage}</p>
-                <p className="text-sm text-gray-500">Gathering local reviews and recommendations — usually takes 20-40 seconds</p>
-                {stage === "searching" && activeDiscoverPrefs.length > 0 && (
-                  <div className="mt-4 flex flex-wrap justify-center items-center gap-2">
-                    <span className="text-xs text-gray-400">Applying:</span>
-                    {activeDiscoverPrefs.map(p => {
-                      const opt = DIETARY_OPTIONS.find(o => o.id === p);
-                      return (
-                        <span key={p} className="text-xs px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-100">
-                          {opt?.emoji} {opt?.label ?? p}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="flex justify-center gap-2 mt-4">
-                  <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" />
-                  <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" style={{ animationDelay: "0.3s" }} />
-                  <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" style={{ animationDelay: "0.6s" }} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Dishes */}
-          {(stage === "dishes" || stage === "restaurants" || stage === "loading_restaurants") && city && dishes.length > 0 && (
-            <div className="mb-8">
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold text-dark">
-                  Must-try dishes in {city.name}, {city.country}
-                </h2>
-                {city.description && <p className="text-gray-600 mt-1">{city.description}</p>}
-              </div>
-              <div className="space-y-3">
-                {dishes.map((dish) => {
-                  const moment = getMealMoment(dish.tags);
-                  const vibe = getDishVibe(dish.rank, dish.tags);
-                  const isSelected = selectedDish?.id === dish.id;
-                  return (
-                    <div
-                      key={dish.id}
-                      onClick={() => handleDishClick(dish)}
-                      className={`bg-white rounded-xl shadow cursor-pointer transition-all hover:shadow-md flex overflow-hidden ${
-                        isSelected ? "ring-2 ring-primary shadow-md" : ""
-                      }`}
-                    >
-                      {/* Left color band */}
-                      <div className={`w-1.5 flex-shrink-0 ${
-                        dish.rank === 1 ? "bg-violet-500" :
-                        dish.rank === 2 ? "bg-purple-400" :
-                        dish.rank === 3 ? "bg-purple-300" : "bg-purple-100"
-                      }`} />
-
-                      {/* Content */}
-                      <div className="flex-1 min-w-0 px-5 py-4 flex items-center gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                            <h3 className="font-bold text-dark text-base leading-snug">{dish.name}</h3>
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                              dish.rank <= 3 ? "bg-violet-100 text-violet-700" : "bg-purple-50 text-purple-600"
-                            }`}>{vibe}</span>
-                            {dish.in_passport && <span title="In your passport" className="text-sm">🛂</span>}
-                          </div>
-                          <div className="flex items-center gap-2 mb-1">
-                            {moment && <span className="text-xs text-purple-500 font-medium">{moment.emoji} {moment.label}</span>}
-                            {dish.cuisine_type && !moment && <span className="text-xs text-gray-400">{dish.cuisine_type}</span>}
-                          </div>
-                          <p className="text-sm text-gray-600 leading-relaxed line-clamp-2">{dish.description}</p>
-                          {dish.tags.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {dish.tags.slice(0, 3).map((tag) => (
-                                <span key={tag} className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full text-xs font-medium">{tag}</span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-shrink-0 flex flex-col gap-2">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDishClick(dish); }}
-                            className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold whitespace-nowrap"
-                          >
-                            Where to eat →
-                          </button>
-                          {wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id) ? (
-                            <span className="text-xs px-4 py-2 bg-green-50 text-green-700 rounded-lg border border-green-200 text-center font-medium">
-                              ✓ Saved
-                            </span>
-                          ) : (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openSaveModal(dish); }}
-                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors text-center"
-                              title="Save to wishlist or trip"
-                            >
-                              🗺️ Save
-                            </button>
-                          )}
-                          {!dish.in_passport && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleAddToPassport(dish); }}
-                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary transition-colors text-center"
-                              title="Add to passport"
-                            >
-                              🛂 Save
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Restaurants */}
-          {stage === "restaurants" && (selectedDish || !isLocal) && (
-            <div className="mb-8 space-y-4">
-              {/* Dish description banner */}
-              {selectedDish && (
-                <div className="bg-gradient-to-r from-purple-50 to-violet-50 rounded-xl p-5 border border-purple-100 flex items-start gap-4">
-                  <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-bold text-base ${
-                    selectedDish.rank === 1 ? "bg-violet-500 text-white" :
-                    selectedDish.rank === 2 ? "bg-purple-400 text-white" :
-                    selectedDish.rank === 3 ? "bg-purple-300 text-white" : "bg-purple-100 text-purple-700"
-                  }`}>{selectedDish.rank}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <h3 className="font-bold text-dark text-lg">{selectedDish.name}</h3>
-                      {selectedDish.cuisine_type && (
-                        <span className="text-xs text-purple-500 font-medium">{selectedDish.cuisine_type}</span>
-                      )}
-                    </div>
-                    {selectedDish.description && (
-                      <p className="text-gray-600 text-sm leading-relaxed">{selectedDish.description}</p>
-                    )}
-                    {selectedDish.tags.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {selectedDish.tags.map(tag => (
-                          <span key={tag} className="px-2 py-0.5 bg-white text-purple-600 rounded-full text-xs font-medium border border-purple-100">{tag}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex-1 min-w-0 pr-4">
-                  <h2 className="text-2xl font-bold text-dark mb-1">
-                    {selectedDish ? `Where locals go for ${selectedDish.name}` : `Best ${categoryLabel} in ${cityInput}`}
-                  </h2>
-                  <p className="text-gray-400 text-xs">Chosen using local reviews, reputation, and food expertise</p>
-                </div>
-                <button
-                  onClick={() => {
-                    if (!isLocal) { setStage("idle"); setRestaurants([]); }
-                    else { setStage("dishes"); setSelectedDish(null); setRestaurants([]); }
-                  }}
-                  className="flex-shrink-0 text-sm text-gray-500 hover:text-gray-700"
-                >
-                  ← Back
-                </button>
-              </div>
-
-              {restaurants.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No restaurants found yet.</p>
-              ) : (
-                <div className="space-y-4">
-                  {restaurants.map((r) => {
-                    const badge = getRestaurantBadge(r);
-                    const badgeStyle: Record<string, string> = {
-                      "Hidden gem":          "bg-emerald-50 text-emerald-700",
-                      "Popular with locals": "bg-amber-50 text-amber-700",
-                      "Neighborhood favorite":"bg-orange-50 text-orange-700",
-                      "Tourist-heavy":       "bg-gray-100 text-gray-500",
-                      "Top pick":            "bg-violet-50 text-violet-700",
-                    };
-                    return (
-                      <div key={r.id || r.rank} className="p-5 rounded-xl border border-gray-100 hover:border-primary hover:shadow-sm transition-all">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="font-bold text-dark text-base">{r.name}</h3>
-                                {badge && (
-                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeStyle[badge] ?? "bg-gray-100 text-gray-600"}`}>
-                                    {badge}
-                                  </span>
-                                )}
-                              </div>
-                              {r.address && <p className="text-sm text-gray-400 mt-0.5">{r.address}</p>}
-                            </div>
-                            <div className="text-right flex-shrink-0">
-                              {r.google_rating && (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-violet-500">★</span>
-                                  <span className="font-semibold">{r.google_rating}</span>
-                                  {r.review_count && (
-                                    <span className="text-gray-400 text-xs">({r.review_count.toLocaleString()})</span>
-                                  )}
-                                </div>
-                              )}
-                              {r.price_level && <p className="text-gray-400 text-sm">{r.price_level}</p>}
-                            </div>
-                          </div>
-                          {r.rank_rationale && (
-                            <p className="text-sm text-gray-600 mt-2 italic leading-relaxed">&ldquo;{r.rank_rationale}&rdquo;</p>
-                          )}
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {r.highlights.slice(0, 4).map((h, i) => (
-                              <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">{h}</span>
-                            ))}
-                          </div>
-                          <div className="mt-3 flex gap-3 flex-wrap">
-                            {r.google_maps_url && (
-                              <a
-                                href={r.google_maps_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
-                              >
-                                📍 Google Maps
-                              </a>
-                            )}
-                            {selectedDish && !selectedDish.in_passport && (
-                              <button
-                                onClick={() => handleAddToPassport(selectedDish)}
-                                className="text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors"
-                              >
-                                🛂 Add to Passport
-                              </button>
-                            )}
-                            {(() => {
-                              const key = `${selectedDish ? selectedDish.name : categoryLabel}|${cityInput}`;
-                              const alreadySaved = addedToTripKeys.has(key)
-                                || (selectedDish ? (itineraryDishIds.has(selectedDish.id) || wishlistDishIds.has(selectedDish.id)) : false);
-                              return alreadySaved ? (
-                                <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
-                                  ✓ Saved
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => openSaveModal(selectedDish, cityInput.trim(), countryInput.trim())}
-                                  className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
-                                >
-                                  🗺️ Save
-                                </button>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              </div>
-            </div>
-          )}
 
           {/* Food category selector */}
           <div className="bg-white rounded-xl shadow p-6 mb-4">
@@ -879,7 +590,7 @@ export default function Explore() {
           </div>
 
           {/* Search form */}
-          <form onSubmit={handleSearch} className="bg-white rounded-lg shadow p-6">
+          <form onSubmit={handleSearch} className="bg-white rounded-lg shadow p-6 mb-8">
             <div className="flex flex-col sm:flex-row gap-3">
               <CityAutocomplete
                 onSelect={handleCitySelect}
@@ -894,6 +605,302 @@ export default function Explore() {
               </button>
             </div>
           </form>
+
+          {/* Loading state */}
+          {(stage === "searching" || stage === "loading_restaurants") && (
+            <div ref={stage === "searching" ? loadingRef : restaurantsLoadingRef} className="mb-8 space-y-4">
+              {/* Dish detail banner — shown while restaurants load */}
+              {stage === "loading_restaurants" && selectedDish && (
+                <div className="bg-gradient-to-r from-purple-50 to-violet-50 rounded-xl p-6 border border-purple-100">
+                  <div className="flex items-start gap-4">
+                    <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${
+                      selectedDish.rank === 1 ? "bg-violet-500 text-white" :
+                      selectedDish.rank === 2 ? "bg-purple-400 text-white" :
+                      selectedDish.rank === 3 ? "bg-purple-300 text-white" : "bg-purple-100 text-purple-700"
+                    }`}>
+                      {selectedDish.rank}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-xl font-bold text-dark mb-1">{selectedDish.name}</h3>
+                      {selectedDish.cuisine_type && (
+                        <p className="text-xs text-purple-500 font-medium mb-2">{selectedDish.cuisine_type}</p>
+                      )}
+                      <p className="text-gray-600 leading-relaxed">{selectedDish.description}</p>
+                      {selectedDish.tags.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1">
+                          {selectedDish.tags.map(tag => (
+                            <span key={tag} className="px-2 py-0.5 bg-white text-purple-600 rounded-full text-xs font-medium border border-purple-100">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Spinner */}
+              <div className="bg-white rounded-lg shadow p-10 text-center">
+                <div className="text-4xl mb-4 animate-strong-pulse">🌍</div>
+                <p className="text-lg font-medium text-gray-700 mb-2">{statusMessage}</p>
+                <p className="text-sm text-gray-500">Gathering local reviews and recommendations — usually takes 20-40 seconds</p>
+                {stage === "searching" && activeDiscoverPrefs.length > 0 && (
+                  <div className="mt-4 flex flex-wrap justify-center items-center gap-2">
+                    <span className="text-xs text-gray-400">Applying:</span>
+                    {activeDiscoverPrefs.map(p => {
+                      const opt = DIETARY_OPTIONS.find(o => o.id === p);
+                      return (
+                        <span key={p} className="text-xs px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-100">
+                          {opt?.emoji} {opt?.label ?? p}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex justify-center gap-2 mt-4">
+                  <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" />
+                  <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" style={{ animationDelay: "0.3s" }} />
+                  <div className="w-2 h-2 bg-primary rounded-full animate-strong-pulse" style={{ animationDelay: "0.6s" }} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dishes */}
+          {(stage === "dishes" || stage === "restaurants" || stage === "loading_restaurants") && city && dishes.length > 0 && (
+            <div ref={dishesRef} className="mb-8">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-dark">
+                  Must-try dishes in {city.name}, {city.country}
+                </h2>
+                {city.description && <p className="text-gray-600 mt-1">{city.description}</p>}
+              </div>
+              <div className="space-y-3">
+                {dishes.map((dish) => {
+                  const moment = getMealMoment(dish.tags);
+                  const vibe = getDishVibe(dish.rank, dish.tags);
+                  const isSelected = selectedDish?.id === dish.id;
+                  return (
+                    <div
+                      key={dish.id}
+                      onClick={() => handleDishClick(dish)}
+                      className={`bg-white rounded-xl shadow cursor-pointer transition-all hover:shadow-md flex overflow-hidden ${
+                        isSelected ? "ring-2 ring-primary shadow-md" : ""
+                      }`}
+                    >
+                      {/* Left color band */}
+                      <div className={`w-1.5 flex-shrink-0 ${
+                        dish.rank === 1 ? "bg-violet-500" :
+                        dish.rank === 2 ? "bg-purple-400" :
+                        dish.rank === 3 ? "bg-purple-300" : "bg-purple-100"
+                      }`} />
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0 px-5 py-4 flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <h3 className="font-bold text-dark text-base leading-snug">{dish.name}</h3>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                              dish.rank <= 3 ? "bg-violet-100 text-violet-700" : "bg-purple-50 text-purple-600"
+                            }`}>{vibe}</span>
+                            {dish.in_passport && <span title="In your passport" className="text-sm">🛂</span>}
+                          </div>
+                          <div className="flex items-center gap-2 mb-1">
+                            {moment && <span className="text-xs text-purple-500 font-medium">{moment.emoji} {moment.label}</span>}
+                            {dish.cuisine_type && !moment && <span className="text-xs text-gray-400">{dish.cuisine_type}</span>}
+                          </div>
+                          <p className="text-sm text-gray-600 leading-relaxed line-clamp-2">{dish.description}</p>
+                          {dish.tags.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {dish.tags.slice(0, 3).map((tag) => (
+                                <span key={tag} className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full text-xs font-medium">{tag}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0 flex flex-col gap-2">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDishClick(dish); }}
+                            className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors font-semibold whitespace-nowrap"
+                          >
+                            Where to eat →
+                          </button>
+                          {wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id) ? (
+                            <span className="text-xs px-4 py-2 bg-green-50 text-green-700 rounded-lg border border-green-200 text-center font-medium">
+                              ✓ Saved
+                            </span>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openSaveModal(dish); }}
+                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-amber-400 hover:text-amber-600 transition-colors text-center"
+                              title="Save to wishlist or trip"
+                            >
+                              🗺️ Save
+                            </button>
+                          )}
+                          {!dish.in_passport && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleAddToPassport(dish); }}
+                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary transition-colors text-center"
+                              title="Add to passport"
+                            >
+                              🛂 Save
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Restaurants */}
+          {stage === "restaurants" && (selectedDish || !isLocal) && (
+            <div ref={restaurantsRef} className="mb-8 space-y-4">
+              {/* Dish description banner */}
+              {selectedDish && (
+                <div className="bg-gradient-to-r from-purple-50 to-violet-50 rounded-xl p-5 border border-purple-100 flex items-start gap-4">
+                  <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-bold text-base ${
+                    selectedDish.rank === 1 ? "bg-violet-500 text-white" :
+                    selectedDish.rank === 2 ? "bg-purple-400 text-white" :
+                    selectedDish.rank === 3 ? "bg-purple-300 text-white" : "bg-purple-100 text-purple-700"
+                  }`}>{selectedDish.rank}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="font-bold text-dark text-lg">{selectedDish.name}</h3>
+                      {selectedDish.cuisine_type && (
+                        <span className="text-xs text-purple-500 font-medium">{selectedDish.cuisine_type}</span>
+                      )}
+                    </div>
+                    {selectedDish.description && (
+                      <p className="text-gray-600 text-sm leading-relaxed">{selectedDish.description}</p>
+                    )}
+                    {selectedDish.tags.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {selectedDish.tags.map(tag => (
+                          <span key={tag} className="px-2 py-0.5 bg-white text-purple-600 rounded-full text-xs font-medium border border-purple-100">{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-start justify-between mb-6">
+                <div className="flex-1 min-w-0 pr-4">
+                  <h2 className="text-2xl font-bold text-dark mb-1">
+                    {selectedDish ? `Where locals go for ${selectedDish.name}` : `Best ${categoryLabel} in ${cityInput}`}
+                  </h2>
+                  <p className="text-gray-400 text-xs">Chosen using local reviews, reputation, and food expertise</p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (!isLocal) { setStage("idle"); setRestaurants([]); }
+                    else { setStage("dishes"); setSelectedDish(null); setRestaurants([]); }
+                  }}
+                  className="flex-shrink-0 text-sm text-gray-500 hover:text-gray-700"
+                >
+                  ← Back
+                </button>
+              </div>
+
+              {restaurants.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No restaurants found yet.</p>
+              ) : (
+                <div className="space-y-4">
+                  {restaurants.map((r) => {
+                    const badge = getRestaurantBadge(r);
+                    const badgeStyle: Record<string, string> = {
+                      "Hidden gem":          "bg-emerald-50 text-emerald-700",
+                      "Popular with locals": "bg-amber-50 text-amber-700",
+                      "Neighborhood favorite":"bg-orange-50 text-orange-700",
+                      "Tourist-heavy":       "bg-gray-100 text-gray-500",
+                      "Top pick":            "bg-violet-50 text-violet-700",
+                    };
+                    return (
+                      <div key={r.id || r.rank} className="p-5 rounded-xl border border-gray-100 hover:border-primary hover:shadow-sm transition-all">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-bold text-dark text-base">{r.name}</h3>
+                                {badge && (
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeStyle[badge] ?? "bg-gray-100 text-gray-600"}`}>
+                                    {badge}
+                                  </span>
+                                )}
+                              </div>
+                              {r.address && <p className="text-sm text-gray-400 mt-0.5">{r.address}</p>}
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              {r.google_rating && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-violet-500">★</span>
+                                  <span className="font-semibold">{r.google_rating}</span>
+                                  {r.review_count && (
+                                    <span className="text-gray-400 text-xs">({r.review_count.toLocaleString()})</span>
+                                  )}
+                                </div>
+                              )}
+                              {r.price_level && <p className="text-gray-400 text-sm">{r.price_level}</p>}
+                            </div>
+                          </div>
+                          {r.rank_rationale && (
+                            <p className="text-sm text-gray-600 mt-2 italic leading-relaxed">&ldquo;{r.rank_rationale}&rdquo;</p>
+                          )}
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {r.highlights.slice(0, 4).map((h, i) => (
+                              <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">{h}</span>
+                            ))}
+                          </div>
+                          <div className="mt-3 flex gap-3 flex-wrap">
+                            {r.google_maps_url && (
+                              <a
+                                href={r.google_maps_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+                              >
+                                📍 Google Maps
+                              </a>
+                            )}
+                            {selectedDish && !selectedDish.in_passport && (
+                              <button
+                                onClick={() => handleAddToPassport(selectedDish)}
+                                className="text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors"
+                              >
+                                🛂 Add to Passport
+                              </button>
+                            )}
+                            {(() => {
+                              const key = `${selectedDish ? selectedDish.name : categoryLabel}|${cityInput}`;
+                              const alreadySaved = addedToTripKeys.has(key)
+                                || (selectedDish ? (itineraryDishIds.has(selectedDish.id) || wishlistDishIds.has(selectedDish.id)) : false);
+                              return alreadySaved ? (
+                                <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
+                                  ✓ Saved
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => openSaveModal(selectedDish, cityInput.trim(), countryInput.trim())}
+                                  className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
+                                >
+                                  🗺️ Save
+                                </button>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              </div>
+            </div>
+          )}
 
         </div>
         {/* Save modal */}
