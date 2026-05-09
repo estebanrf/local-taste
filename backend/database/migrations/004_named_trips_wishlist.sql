@@ -12,13 +12,10 @@ CREATE TABLE IF NOT EXISTS itineraries (
 
 CREATE INDEX IF NOT EXISTS idx_itineraries_user ON itineraries(clerk_user_id);
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_itineraries_updated_at') THEN
-    CREATE TRIGGER update_itineraries_updated_at
-      BEFORE UPDATE ON itineraries
-      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-  END IF;
-END $$;
+DROP TRIGGER IF EXISTS update_itineraries_updated_at ON itineraries;
+CREATE TRIGGER update_itineraries_updated_at
+    BEFORE UPDATE ON itineraries
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 
 -- 2. Wishlist items table
@@ -37,36 +34,18 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
 
 CREATE INDEX IF NOT EXISTS idx_wishlist_user ON wishlist_items(clerk_user_id);
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_wishlist_updated_at') THEN
-    CREATE TRIGGER update_wishlist_updated_at
-      BEFORE UPDATE ON wishlist_items
-      FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-  END IF;
-END $$;
+DROP TRIGGER IF EXISTS update_wishlist_updated_at ON wishlist_items;
+CREATE TRIGGER update_wishlist_updated_at
+    BEFORE UPDATE ON wishlist_items
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 
--- 3. Add itinerary_id FK to itinerary_items (nullable during migration/backfill)
+-- 3. Add itinerary_id FK to itinerary_items (nullable)
 ALTER TABLE itinerary_items
     ADD COLUMN IF NOT EXISTS itinerary_id UUID REFERENCES itineraries(id) ON DELETE CASCADE;
 
 
--- 4. Backfill: create a "My Trip" itinerary for each user who already has items
-WITH new_trips AS (
-    INSERT INTO itineraries (clerk_user_id, name)
-    SELECT DISTINCT clerk_user_id, 'My Trip'
-    FROM itinerary_items
-    WHERE itinerary_id IS NULL
-    RETURNING id, clerk_user_id
-)
-UPDATE itinerary_items ii
-SET itinerary_id = nt.id
-FROM new_trips nt
-WHERE ii.clerk_user_id = nt.clerk_user_id
-  AND ii.itinerary_id IS NULL;
-
-
--- 5. Drop the old per-user per-dish uniqueness constraint, add per-itinerary constraint
+-- 4. Drop the old per-user per-dish uniqueness constraint, add per-itinerary constraint
 ALTER TABLE itinerary_items
     DROP CONSTRAINT IF EXISTS itinerary_items_clerk_user_id_dish_id_key;
 

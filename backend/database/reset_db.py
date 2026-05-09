@@ -13,7 +13,9 @@ from src.models import Database
 def drop_all_tables(db: DataAPIClient):
     print("Dropping existing tables...")
     tables = [
+        "wishlist_items",
         "itinerary_items",
+        "itineraries",
         "passport_entries",
         "restaurants",
         "dishes",
@@ -74,7 +76,7 @@ def main():
         create_test_user(db)
 
     print("\nVerification...")
-    for table in ["users", "cities", "dishes", "restaurants", "passport_entries", "jobs"]:
+    for table in ["users", "cities", "dishes", "restaurants", "passport_entries", "jobs", "itineraries", "wishlist_items"]:
         result = db_client.query(f"SELECT COUNT(*) as count FROM {table}")
         count = result[0]["count"] if result else 0
         print(f"  {table}: {count} records")
