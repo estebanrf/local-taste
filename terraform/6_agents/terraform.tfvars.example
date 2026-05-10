@@ -23,5 +23,5 @@ bedrock_region = "eu-west-1"
 # OpenAI API key (needed for OpenAI Agents SDK tracing - no spend required)
 # openai_api_key = ""
 
-# Tavily API key for real web search in Restaurant Ranker (free tier: 1000 searches/month)
-tavily_api_key = "tvly-..."
+# Google Maps API key for Places search in Restaurant Ranker
+google_maps_api_key = "AIza..."

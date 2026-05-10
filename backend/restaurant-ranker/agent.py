@@ -1,6 +1,6 @@
 """
 Restaurant Ranker Agent - finds and ranks top-5 restaurants for a dish in a city.
-Uses Tavily to search for real restaurant data.
+Uses Google Maps Places API to search for real restaurant data.
 """
 
 import os
@@ -27,35 +27,50 @@ class RestaurantRankerContext:
 
 
 @function_tool
-async def search_web(wrapper: RunContextWrapper[RestaurantRankerContext], query: str) -> str:
+async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], query: str) -> str:
     """
-    Search the web for restaurant information using Tavily.
+    Search for restaurants using the Google Maps Places API.
 
     Args:
-        query: The search query, e.g. "best ramen restaurants Tokyo Japan Google Maps rating"
+        query: The search query, e.g. "best ramen restaurants Tokyo Japan"
     Returns:
-        Search results as text
+        Structured restaurant data as text
     """
-    from tavily import TavilyClient
+    import googlemaps
 
-    api_key = os.getenv("TAVILY_API_KEY")
+    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
     if not api_key:
-        logger.warning("TAVILY_API_KEY not set")
-        return "Search unavailable: TAVILY_API_KEY not configured."
+        logger.warning("GOOGLE_MAPS_API_KEY not set")
+        return "Search unavailable: GOOGLE_MAPS_API_KEY not configured."
 
     try:
-        client = TavilyClient(api_key=api_key)
-        logger.info(f"Tavily search query: {query}")
-        response = client.search(query=query, max_results=5)
-        results = response.get("results", [])
-        text = "\n\n".join(
-            f"**{r.get('title', '')}**\n{r.get('url', '')}\n{r.get('content', '')}"
-            for r in results
-        )
-        logger.info(f"Tavily search for '{query}' returned {len(results)} results")
-        return text or "No results found."
+        gmaps = googlemaps.Client(key=api_key)
+        logger.info(f"Google Maps Places search: {query}")
+        response = gmaps.places(query=query)
+        results = response.get("results", [])[:5]
+
+        lines = []
+        for r in results:
+            name = r.get("name", "")
+            address = r.get("formatted_address", "")
+            rating = r.get("rating", "")
+            review_count = r.get("user_ratings_total", "")
+            price_level = r.get("price_level")
+            place_id = r.get("place_id", "")
+            maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}" if place_id else ""
+            price_str = "$" * price_level if isinstance(price_level, int) else ""
+            lines.append(
+                f"**{name}**\n"
+                f"Address: {address}\n"
+                f"Rating: {rating} ({review_count} reviews)\n"
+                f"Price: {price_str}\n"
+                f"Maps: {maps_url}"
+            )
+
+        logger.info(f"Google Maps search for '{query}' returned {len(results)} results")
+        return "\n\n".join(lines) or "No results found."
     except Exception as e:
-        logger.warning(f"Tavily search failed: {e}")
+        logger.warning(f"Google Maps search failed: {e}")
         return f"Search failed: {e}"
 
 
@@ -97,4 +112,4 @@ def create_agent(
     task += '\n\nCompile your final JSON with exactly 5 restaurants. Use real data from search results.'
 
     logger.info(f"RestaurantRanker task: {task[:400]}")
-    return model, [search_web], task, context
+    return model, [search_places], task, context

@@ -48,8 +48,8 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
-variable "tavily_api_key" {
-  description = "Tavily API key for web search in Restaurant Ranker"
+variable "google_maps_api_key" {
+  description = "Google Maps API key for Places search in Restaurant Ranker"
   type        = string
   default     = ""
   sensitive   = true

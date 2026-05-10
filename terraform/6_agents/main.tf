@@ -149,7 +149,7 @@ resource "aws_lambda_function" "restaurant_ranker" {
 
   environment {
     variables = merge(local.common_env, {
-      TAVILY_API_KEY = var.tavily_api_key
+      GOOGLE_MAPS_API_KEY = var.google_maps_api_key
     })
   }
 
