@@ -79,6 +79,7 @@ export default function Passport() {
   const [loadingWishlistRestaurants, setLoadingWishlistRestaurants] = useState(false);
   const [rankingWishlistRestaurants, setRankingWishlistRestaurants] = useState(false);
   const [rankingWishlistStatus, setRankingWishlistStatus] = useState("");
+  const [markingEaten, setMarkingEaten] = useState(false);
 
   const load = async () => {
     try {
@@ -250,6 +251,26 @@ export default function Passport() {
       setRankingWishlistRestaurants(false);
       setRankingWishlistStatus("");
       showToast("error", "Failed to start restaurant search.");
+    }
+  };
+
+  const handleMarkEaten = async (restaurant: Restaurant) => {
+    if (!selectedWishlistItem?.dish_id || markingEaten) return;
+    setMarkingEaten(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/passport`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ dish_id: selectedWishlistItem.dish_id, restaurant_id: restaurant.id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      showToast("success", `"${selectedWishlistItem.dish_name}" added to your passport!`);
+      await load();
+    } catch {
+      showToast("error", "Failed to mark as eaten.");
+    } finally {
+      setMarkingEaten(false);
     }
   };
 
@@ -462,26 +483,42 @@ export default function Passport() {
                             )}
                             {wishlistRestaurants.length > 0 && (
                               <div className="space-y-3 text-left">
-                                {wishlistRestaurants.map(r => (
-                                  <div key={r.id} className="rounded-lg border border-gray-100 hover:border-primary p-3 transition-all">
-                                    <div className="flex items-start justify-between gap-2 mb-1">
-                                      <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
-                                      {r.google_rating && (
-                                        <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>
+                                {wishlistRestaurants.map(r => {
+                                  const alreadyEaten = entries.some(e => e.restaurant_id === r.id);
+                                  return (
+                                    <div key={r.id} className={`rounded-lg border p-3 transition-all ${alreadyEaten ? "border-green-200 bg-green-50" : "border-gray-100 hover:border-primary"}`}>
+                                      <div className="flex items-start justify-between gap-2 mb-1">
+                                        <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
+                                        {r.google_rating && (
+                                          <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>
+                                        )}
+                                      </div>
+                                      {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
+                                      {r.rank_rationale && (
+                                        <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
                                       )}
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {alreadyEaten ? (
+                                          <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
+                                        ) : selectedWishlistItem?.dish_id ? (
+                                          <button
+                                            onClick={() => handleMarkEaten(r)}
+                                            disabled={markingEaten}
+                                            className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors"
+                                          >
+                                            {markingEaten ? "Saving…" : "✓ Mark as eaten"}
+                                          </button>
+                                        ) : null}
+                                        {r.google_maps_url && (
+                                          <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer"
+                                            className="text-xs text-blue-600 hover:underline">
+                                            📍 Maps
+                                          </a>
+                                        )}
+                                      </div>
                                     </div>
-                                    {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
-                                    {r.rank_rationale && (
-                                      <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
-                                    )}
-                                    {r.google_maps_url && (
-                                      <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer"
-                                        className="text-xs text-blue-600 hover:underline">
-                                        📍 Maps
-                                      </a>
-                                    )}
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -509,26 +546,42 @@ export default function Passport() {
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            {wishlistRestaurants.map(r => (
-                              <div key={r.id} className="rounded-lg border border-gray-100 hover:border-primary p-3 transition-all">
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
-                                  {r.google_rating && (
-                                    <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>
+                            {wishlistRestaurants.map(r => {
+                              const alreadyEaten = entries.some(e => e.restaurant_id === r.id);
+                              return (
+                                <div key={r.id} className={`rounded-lg border p-3 transition-all ${alreadyEaten ? "border-green-200 bg-green-50" : "border-gray-100 hover:border-primary"}`}>
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
+                                    {r.google_rating && (
+                                      <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>
+                                    )}
+                                  </div>
+                                  {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
+                                  {r.rank_rationale && (
+                                    <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
                                   )}
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {alreadyEaten ? (
+                                      <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleMarkEaten(r)}
+                                        disabled={markingEaten}
+                                        className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors"
+                                      >
+                                        {markingEaten ? "Saving…" : "✓ Mark as eaten"}
+                                      </button>
+                                    )}
+                                    {r.google_maps_url && (
+                                      <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer"
+                                        className="text-xs text-blue-600 hover:underline">
+                                        📍 Maps
+                                      </a>
+                                    )}
+                                  </div>
                                 </div>
-                                {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
-                                {r.rank_rationale && (
-                                  <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
-                                )}
-                                {r.google_maps_url && (
-                                  <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer"
-                                    className="text-xs text-blue-600 hover:underline">
-                                    📍 Maps
-                                  </a>
-                                )}
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>

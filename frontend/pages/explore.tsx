@@ -316,22 +316,6 @@ export default function Explore() {
     }
   };
 
-  const handleAddToPassport = async (dish: Dish) => {
-    try {
-      const token = await getToken();
-      await fetch(`${API_URL}/api/passport`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: dish.id }),
-      });
-      setDishes((prev) => prev.map((d) => d.id === dish.id ? { ...d, in_passport: true } : d));
-      if (selectedDish?.id === dish.id) setSelectedDish({ ...dish, in_passport: true });
-      showToast("success", `"${dish.name}" added to your passport!`);
-    } catch {
-      showToast("error", "Failed to add to passport.");
-    }
-  };
-
   const openSaveModal = (dish: Dish | null, overrideCityName?: string, overrideCountry?: string, restaurantId?: string) => {
     const dishName = dish ? dish.name : (categoryLabel || `Food in ${cityInput}`);
     const cName = overrideCityName ?? city?.name ?? cityInput;
@@ -736,15 +720,6 @@ export default function Explore() {
                           >
                             {wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id) ? "✓ Saved" : "🗺️ Save"}
                           </button>
-                          {!dish.in_passport && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleAddToPassport(dish); }}
-                              className="text-xs px-4 py-2 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary transition-colors text-center"
-                              title="Add to passport"
-                            >
-                              🛂 Save
-                            </button>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -864,14 +839,6 @@ export default function Explore() {
                               >
                                 📍 Google Maps
                               </a>
-                            )}
-                            {selectedDish && !selectedDish.in_passport && (
-                              <button
-                                onClick={() => handleAddToPassport(selectedDish)}
-                                className="text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors"
-                              >
-                                🛂 Add to Passport
-                              </button>
                             )}
                             {savedRestaurantIds.has(r.id) ? (
                               <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
