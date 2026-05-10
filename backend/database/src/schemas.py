@@ -126,7 +126,7 @@ class WishlistItemCreate(BaseModel):
     city_name: Optional[str] = None
     country: Optional[str] = None
     notes: Optional[str] = None
-    restaurant_id: Optional[str] = None
+    restaurant_id: Optional[str] = None  # single restaurant to append to restaurant_ids
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────

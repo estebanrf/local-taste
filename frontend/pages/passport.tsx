@@ -31,6 +31,7 @@ interface WishlistItem {
   cuisine_type: string | null;
   dish_description: string | null;
   tags: string[];
+  restaurant_ids: string[];
   created_at: string;
 }
 
@@ -195,7 +196,13 @@ export default function Passport() {
       });
       if (res.ok) {
         const data = await res.json();
-        const sorted = [...(data.restaurants || [])].sort(
+        const all: Restaurant[] = data.restaurants || [];
+        const savedIds = item.restaurant_ids || [];
+        // If specific restaurants were saved, show only those; otherwise show all
+        const filtered = savedIds.length > 0
+          ? all.filter(r => savedIds.includes(r.id))
+          : all;
+        const sorted = [...filtered].sort(
           (a: Restaurant, b: Restaurant) => (b.google_rating ?? 0) - (a.google_rating ?? 0)
         );
         setWishlistRestaurants(sorted);

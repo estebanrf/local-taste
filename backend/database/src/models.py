@@ -147,7 +147,7 @@ class PassportEntries(BaseModel):
             'clerk_user_id': clerk_user_id,
             'dish_id': entry.dish_id,
             'restaurant_id': entry.restaurant_id,
-            'tasted_at': entry.tasted_at.isoformat() if entry.tasted_at else date.today().isoformat(),
+            'tasted_at': entry.tasted_at if entry.tasted_at else date.today(),
             'rating': entry.rating,
             'notes': entry.notes,
         }.items() if v is not None}
@@ -230,14 +230,33 @@ class WishlistItems(BaseModel):
         ])
 
     def create_item(self, clerk_user_id: str, item: 'WishlistItemCreate', dish_name: str, city_name: str, country: str) -> str:
-        data: Dict = {'clerk_user_id': clerk_user_id, 'dish_name': dish_name, 'city_name': city_name, 'country': country}
+        restaurant_ids = [item.restaurant_id] if item.restaurant_id else []
+        data: Dict = {
+            'clerk_user_id': clerk_user_id,
+            'dish_name': dish_name,
+            'city_name': city_name,
+            'country': country,
+            'restaurant_ids': restaurant_ids,
+        }
         if item.dish_id:
             data['dish_id'] = item.dish_id
         if item.notes:
             data['notes'] = item.notes
-        if item.restaurant_id:
-            data['restaurant_id'] = item.restaurant_id
         return self.db.insert('wishlist_items', data, returning='id')
+
+    def append_restaurant(self, item_id: str, restaurant_id: str) -> None:
+        sql = """
+            UPDATE wishlist_items
+            SET restaurant_ids = (
+                SELECT jsonb_agg(DISTINCT val)
+                FROM jsonb_array_elements_text(restaurant_ids || :rid::jsonb) AS val
+            )
+            WHERE id = :id::uuid
+        """
+        self.db.execute(sql, [
+            {'name': 'rid', 'value': {'stringValue': f'["{restaurant_id}"]'}},
+            {'name': 'id',  'value': {'stringValue': item_id}},
+        ])
 
     def delete_item(self, item_id: str) -> int:
         return self.db.delete('wishlist_items', "id = :id::uuid", {'id': item_id})

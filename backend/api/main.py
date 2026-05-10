@@ -603,6 +603,8 @@ async def add_wishlist_item(item: WishlistItemCreate, clerk_user_id: str = Depen
             country = city["country"]
             existing = db.wishlist.find_by_user_and_dish(clerk_user_id, item.dish_id)
             if existing:
+                if item.restaurant_id:
+                    db.wishlist.append_restaurant(existing["id"], item.restaurant_id)
                 return {"id": existing["id"], "ok": True, "already_exists": True}
         else:
             if not item.dish_name or not item.city_name or not item.country:
