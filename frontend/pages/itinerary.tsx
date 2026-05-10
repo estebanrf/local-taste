@@ -247,25 +247,49 @@ export default function Itinerary() {
     }
   };
 
-  const handleMarkEaten = async (restaurant: Restaurant) => {
-    if (!selectedItem?.dish_id || markingEaten) return;
-    setMarkingEaten(true);
+  const markEaten = async (dishId: string, dishName: string, restaurantId?: string) => {
     try {
       const token = await getToken();
+      const body: Record<string, string> = { dish_id: dishId };
+      if (restaurantId) body.restaurant_id = restaurantId;
       const res = await fetch(`${API_URL}/api/passport`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: selectedItem.dish_id, restaurant_id: restaurant.id }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
-      showToast("success", `Marked "${selectedItem.dish_name}" as eaten at ${restaurant.name}!`);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleMarkDishEaten = async (item: ItineraryItem) => {
+    if (!item.dish_id || markingEaten) return;
+    setMarkingEaten(true);
+    const ok = await markEaten(item.dish_id, item.dish_name);
+    if (ok) {
+      showToast("success", `"${item.dish_name}" added to your passport!`);
+      await loadPassport();
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, eaten_count: (i.eaten_count || 0) + 1 } : i));
+    } else {
+      showToast("error", "Failed to mark as eaten.");
+    }
+    setMarkingEaten(false);
+  };
+
+  const handleMarkEaten = async (restaurant: Restaurant) => {
+    if (!selectedItem?.dish_id || markingEaten) return;
+    setMarkingEaten(true);
+    const ok = await markEaten(selectedItem.dish_id, selectedItem.dish_name, restaurant.id);
+    if (ok) {
+      showToast("success", `"${selectedItem.dish_name}" at ${restaurant.name} added to your passport!`);
       await loadPassport();
       setSelectedItem(prev => prev ? { ...prev, eaten_count: (prev.eaten_count || 0) + 1 } : prev);
-    } catch {
+    } else {
       showToast("error", "Failed to mark as eaten.");
-    } finally {
-      setMarkingEaten(false);
     }
+    setMarkingEaten(false);
   };
 
   const handleDeleteItem = async (id: string) => {
@@ -464,11 +488,22 @@ export default function Itinerary() {
                                           <p className="text-xs text-amber-700 mt-0.5 italic">📝 {item.notes}</p>
                                         )}
                                       </div>
-                                      <button
-                                        onClick={e => { e.stopPropagation(); setConfirmDeleteItemId(item.id); }}
-                                        className="flex-shrink-0 text-xs text-gray-300 hover:text-red-400 transition-colors px-2"
-                                        title="Remove from trip"
-                                      >✕</button>
+                                      <div className="flex-shrink-0 flex flex-col gap-1 items-end">
+                                        {item.dish_id && !eaten && (
+                                          <button
+                                            onClick={e => { e.stopPropagation(); handleMarkDishEaten(item); }}
+                                            disabled={markingEaten}
+                                            className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
+                                          >
+                                            ✓ Eaten
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={e => { e.stopPropagation(); setConfirmDeleteItemId(item.id); }}
+                                          className="text-xs text-gray-300 hover:text-red-400 transition-colors px-1"
+                                          title="Remove from trip"
+                                        >✕</button>
+                                      </div>
                                     </div>
                                   </div>
                                 );
@@ -565,7 +600,7 @@ export default function Itinerary() {
                                             disabled={markingEaten}
                                             className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
                                           >
-                                            {markingEaten ? "Saving…" : "✓ Mark as eaten"}
+                                            {markingEaten ? "Saving…" : "✓ Already Been"}
                                           </button>
                                         )}
                                         {r.google_maps_url && (

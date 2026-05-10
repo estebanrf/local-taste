@@ -255,24 +255,46 @@ export default function Passport() {
     }
   };
 
-  const handleMarkEaten = async (restaurant: Restaurant) => {
-    if (!selectedWishlistItem?.dish_id || markingEaten) return;
-    setMarkingEaten(true);
+  const postPassport = async (dishId: string, restaurantId?: string): Promise<boolean> => {
     try {
       const token = await getToken();
+      const body: Record<string, string> = { dish_id: dishId };
+      if (restaurantId) body.restaurant_id = restaurantId;
       const res = await fetch(`${API_URL}/api/passport`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: selectedWishlistItem.dish_id, restaurant_id: restaurant.id }),
+        body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(await res.text());
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleMarkDishEaten = async (item: WishlistItem) => {
+    if (!item.dish_id || markingEaten) return;
+    setMarkingEaten(true);
+    const ok = await postPassport(item.dish_id);
+    if (ok) {
+      showToast("success", `"${item.dish_name}" added to your passport!`);
+      await load();
+    } else {
+      showToast("error", "Failed to mark as eaten.");
+    }
+    setMarkingEaten(false);
+  };
+
+  const handleMarkEaten = async (restaurant: Restaurant) => {
+    if (!selectedWishlistItem?.dish_id || markingEaten) return;
+    setMarkingEaten(true);
+    const ok = await postPassport(selectedWishlistItem.dish_id, restaurant.id);
+    if (ok) {
       showToast("success", `"${selectedWishlistItem.dish_name}" added to your passport!`);
       await load();
-    } catch {
+    } else {
       showToast("error", "Failed to mark as eaten.");
-    } finally {
-      setMarkingEaten(false);
     }
+    setMarkingEaten(false);
   };
 
   const startEdit = (entry: PassportEntry) => {
@@ -401,6 +423,7 @@ export default function Passport() {
                   <div className="lg:col-span-2 space-y-2">
                     {wishlistItems.map(item => {
                       const isSelected = selectedWishlistItem?.id === item.id;
+                      const alreadyEaten = item.dish_id ? entries.some(e => e.dish_id === item.dish_id) : false;
                       return (
                         <div
                           key={item.id}
@@ -409,13 +432,16 @@ export default function Passport() {
                             isSelected ? "ring-2 ring-primary border-transparent" : "border-gray-100"
                           }`}
                         >
-                          <div className="w-1.5 flex-shrink-0 bg-amber-300" />
+                          <div className={`w-1.5 flex-shrink-0 ${alreadyEaten ? "bg-green-400" : "bg-amber-300"}`} />
                           <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-semibold text-dark text-sm">{item.dish_name}</span>
                                 {item.cuisine_type && (
                                   <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">{item.cuisine_type}</span>
+                                )}
+                                {alreadyEaten && (
+                                  <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">✓ In passport</span>
                                 )}
                               </div>
                               <p className="text-xs text-gray-400 mt-0.5">📍 {item.city_name}, {item.country}</p>
@@ -426,11 +452,22 @@ export default function Passport() {
                                 <p className="text-xs text-amber-700 mt-0.5 italic">📝 {item.notes}</p>
                               )}
                             </div>
-                            <button
-                              onClick={e => { e.stopPropagation(); setConfirmDeleteWishlistId(item.id); }}
-                              className="flex-shrink-0 text-xs text-red-300 hover:text-red-500 transition-colors px-2"
-                              title="Remove from wishlist"
-                            >✕</button>
+                            <div className="flex-shrink-0 flex flex-col gap-1 items-end">
+                              {item.dish_id && !alreadyEaten && (
+                                <button
+                                  onClick={e => { e.stopPropagation(); handleMarkDishEaten(item); }}
+                                  disabled={markingEaten}
+                                  className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
+                                >
+                                  ✓ Eaten
+                                </button>
+                              )}
+                              <button
+                                onClick={e => { e.stopPropagation(); setConfirmDeleteWishlistId(item.id); }}
+                                className="text-xs text-red-300 hover:text-red-500 transition-colors px-1"
+                                title="Remove from wishlist"
+                              >✕</button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -507,7 +544,7 @@ export default function Passport() {
                                             disabled={markingEaten}
                                             className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors"
                                           >
-                                            {markingEaten ? "Saving…" : "✓ Mark as eaten"}
+                                            {markingEaten ? "Saving…" : "✓ Already Been"}
                                           </button>
                                         ) : null}
                                         {r.google_maps_url && (
