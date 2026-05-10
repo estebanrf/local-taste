@@ -57,6 +57,9 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                 # Agent may also return coords directly
                 lat = r.get("latitude") or lat
                 lng = r.get("longitude") or lng
+                raw_price = r.get("price_level") or None
+                valid_prices = {"$", "$$", "$$$", "$$$$"}
+                price_level_val = raw_price if raw_price in valid_prices else None
                 rest = RestaurantCreate(
                     dish_id=dish_id,
                     name=r["name"],
@@ -64,7 +67,7 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                     google_maps_url=r.get("google_maps_url"),
                     google_rating=r.get("google_rating"),
                     review_count=r.get("review_count"),
-                    price_level=r.get("price_level"),
+                    price_level=price_level_val,
                     rank=r.get("rank", 1),
                     rank_rationale=r.get("rank_rationale", ""),
                     highlights=r.get("highlights", []),

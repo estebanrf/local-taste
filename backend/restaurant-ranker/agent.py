@@ -46,7 +46,7 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
     try:
         gmaps = googlemaps.Client(key=api_key)
         logger.info(f"Google Maps Places search: {query}")
-        response = gmaps.places(query=query)
+        response = gmaps.places(query=query, type="restaurant")
         results = response.get("results", [])[:5]
 
         lines = []
@@ -57,13 +57,21 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             review_count = r.get("user_ratings_total", "")
             price_level = r.get("price_level")
             place_id = r.get("place_id", "")
-            maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}" if place_id else ""
-            price_str = "$" * price_level if isinstance(price_level, int) else ""
+            location = r.get("geometry", {}).get("location", {})
+            lat = location.get("lat")
+            lng = location.get("lng")
+            maps_url = (
+                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+                if place_id else ""
+            )
+            price_str = "$" * price_level if isinstance(price_level, int) and price_level > 0 else "unknown"
             lines.append(
                 f"**{name}**\n"
                 f"Address: {address}\n"
                 f"Rating: {rating} ({review_count} reviews)\n"
                 f"Price: {price_str}\n"
+                f"Latitude: {lat}\n"
+                f"Longitude: {lng}\n"
                 f"Maps: {maps_url}"
             )
 
