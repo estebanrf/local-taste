@@ -46,6 +46,7 @@ interface PassportEntry {
   rating: number | null;
   notes: string | null;
   restaurant_name: string | null;
+  restaurant_id: string | null;
 }
 
 interface Stats {
