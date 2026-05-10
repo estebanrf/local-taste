@@ -54,7 +54,6 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
             db.restaurants.delete_by_dish(dish_id)
             for r in restaurants[:5]:
                 lat, lng = _extract_coords(r.get("google_maps_url"))
-                # Agent may also return coords directly
                 lat = r.get("latitude") or lat
                 lng = r.get("longitude") or lng
                 raw_price = r.get("price_level") or None
@@ -76,6 +75,8 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                 )
                 db.restaurants.create_restaurant(rest)
                 logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} coords={lat},{lng}")
+            # Use the DB rows (with real UUIDs) as the job payload so the frontend has correct IDs
+            restaurants = db.restaurants.find_by_dish(dish_id)
         else:
             logger.info(f"RestaurantRanker: category_mode={category_mode} — skipping DB write, results in job payload only")
 

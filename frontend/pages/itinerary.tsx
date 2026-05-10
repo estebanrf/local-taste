@@ -33,6 +33,7 @@ interface ItineraryItem {
   created_at: string;
   latitude: number | null;
   longitude: number | null;
+  restaurant_id: string | null;
 }
 
 interface Restaurant {
@@ -196,7 +197,12 @@ export default function Itinerary() {
       });
       if (res.ok) {
         const data = await res.json();
-        const sorted = [...(data.restaurants || [])].sort(
+        const all: Restaurant[] = data.restaurants || [];
+        // Show only the pinned restaurant if one was saved, otherwise show all
+        const filtered = item.restaurant_id
+          ? all.filter(r => r.id === item.restaurant_id)
+          : all;
+        const sorted = [...filtered].sort(
           (a: Restaurant, b: Restaurant) => (b.google_rating ?? 0) - (a.google_rating ?? 0)
         );
         setRestaurants(sorted);

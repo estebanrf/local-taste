@@ -17,6 +17,7 @@ interface MapItem {
   created_at: string;
   latitude: number | null;
   longitude: number | null;
+  restaurant_id: string | null;
 }
 
 interface Props {

@@ -82,14 +82,20 @@ export default function Passport() {
   const [rankingWishlistRestaurants, setRankingWishlistRestaurants] = useState(false);
   const [rankingWishlistStatus, setRankingWishlistStatus] = useState("");
   const [markingEaten, setMarkingEaten] = useState(false);
+  const [itineraries, setItineraries] = useState<{id: string; name: string}[]>([]);
+  const [tripModal, setTripModal] = useState<WishlistItem | null>(null);
+  const [selectedItineraryIds, setSelectedItineraryIds] = useState<string[]>([]);
+  const [newTripName, setNewTripName] = useState("");
+  const [addingToTrip, setAddingToTrip] = useState(false);
 
   const load = async () => {
     try {
       const token = await getToken();
-      const [passportRes, userRes, wishlistRes] = await Promise.all([
-        fetch(`${API_URL}/api/passport`,  { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/user`,      { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/wishlist`,  { headers: { Authorization: `Bearer ${token}` } }),
+      const [passportRes, userRes, wishlistRes, itinerariesRes] = await Promise.all([
+        fetch(`${API_URL}/api/passport`,     { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/user`,         { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/wishlist`,     { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/itineraries`,  { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (passportRes.ok) {
         const data = await passportRes.json();
@@ -106,6 +112,10 @@ export default function Passport() {
       if (wishlistRes.ok) {
         const data = await wishlistRes.json();
         setWishlistItems(data.items || []);
+      }
+      if (itinerariesRes.ok) {
+        const data = await itinerariesRes.json();
+        setItineraries(data.itineraries || []);
       }
     } catch { /* silent */ } finally {
       setLoading(false);
@@ -304,6 +314,54 @@ export default function Passport() {
     setMarkingEaten(false);
   };
 
+  const handleAddToTrip = async () => {
+    if (!tripModal) return;
+    const hasNew = newTripName.trim().length > 0;
+    if (selectedItineraryIds.length === 0 && !hasNew) return;
+    setAddingToTrip(true);
+    try {
+      const token = await getToken();
+      const targetIds = [...selectedItineraryIds];
+
+      if (hasNew) {
+        const res = await fetch(`${API_URL}/api/itineraries`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: newTripName.trim() }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const created = await res.json();
+        targetIds.push(created.id);
+        setItineraries(prev => [...prev, { id: created.id, name: created.name }]);
+      }
+
+      const body = tripModal.dish_id
+        ? { dish_id: tripModal.dish_id }
+        : { dish_name: tripModal.dish_name, city_name: tripModal.city_name, country: tripModal.country };
+
+      await Promise.all(targetIds.map(id =>
+        fetch(`${API_URL}/api/itineraries/${id}/items`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      ));
+
+      const names = [
+        ...selectedItineraryIds.map(id => itineraries.find(t => t.id === id)?.name ?? id),
+        ...(hasNew ? [newTripName.trim()] : []),
+      ].join(", ");
+      showToast("success", `"${tripModal.dish_name}" added to ${names}!`);
+      setTripModal(null);
+      setSelectedItineraryIds([]);
+      setNewTripName("");
+    } catch {
+      showToast("error", "Failed to add to trip.");
+    } finally {
+      setAddingToTrip(false);
+    }
+  };
+
   const startEdit = (entry: PassportEntry) => {
     setEditingId(entry.id);
     setEditRating(entry.rating || 0);
@@ -469,6 +527,12 @@ export default function Passport() {
                                   ✓ Eaten
                                 </button>
                               )}
+                              <button
+                                onClick={e => { e.stopPropagation(); setSelectedItineraryIds([]); setNewTripName(""); setTripModal(item); }}
+                                className="text-xs px-2.5 py-1 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary transition-colors whitespace-nowrap"
+                              >
+                                🗺️ Trip
+                              </button>
                               <button
                                 onClick={e => { e.stopPropagation(); setConfirmDeleteWishlistId(item.id); }}
                                 className="text-xs text-red-300 hover:text-red-500 transition-colors px-1"
@@ -818,6 +882,76 @@ export default function Passport() {
             onConfirm={() => handleDeleteWishlistItem(confirmDeleteWishlistId)}
             onCancel={() => setConfirmDeleteWishlistId(null)}
           />
+        )}
+
+        {tripModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-dark">Add to Trip</h2>
+                <button onClick={() => setTripModal(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+              </div>
+              <p className="text-sm text-gray-500 mb-5">
+                Add <span className="font-semibold text-dark">{tripModal.dish_name}</span> in {tripModal.city_name} to one or more trips.
+              </p>
+
+              {itineraries.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Your trips</p>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {itineraries.map(trip => {
+                      const checked = selectedItineraryIds.includes(trip.id);
+                      return (
+                        <button
+                          key={trip.id}
+                          onClick={() => setSelectedItineraryIds(prev =>
+                            checked ? prev.filter(id => id !== trip.id) : [...prev, trip.id]
+                          )}
+                          className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-2 ${
+                            checked
+                              ? "bg-primary text-white border-primary"
+                              : "border-gray-200 text-gray-700 hover:border-primary hover:text-primary"
+                          }`}
+                        >
+                          <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${checked ? "bg-white border-white text-primary" : "border-gray-300"}`}>
+                            {checked ? "✓" : ""}
+                          </span>
+                          🗺️ {trip.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="mb-5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">New trip</p>
+                <input
+                  type="text"
+                  value={newTripName}
+                  onChange={e => setNewTripName(e.target.value)}
+                  placeholder="Trip name (e.g. Paris Spring 2025)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={handleAddToTrip}
+                  disabled={addingToTrip || (selectedItineraryIds.length === 0 && !newTripName.trim())}
+                  className="flex-1 px-4 py-2.5 bg-primary text-white rounded-lg font-semibold text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {addingToTrip ? "Adding…" : `Add to ${selectedItineraryIds.length + (newTripName.trim() ? 1 : 0) > 1 ? `${selectedItineraryIds.length + (newTripName.trim() ? 1 : 0)} trips` : "Trip"}`}
+                </button>
+                <button
+                  onClick={() => setTripModal(null)}
+                  className="px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg text-sm hover:border-gray-400 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </Layout>
     </>
