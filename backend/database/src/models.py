@@ -92,12 +92,31 @@ class Dishes(BaseModel):
         sql = "SELECT * FROM dishes WHERE city_id = :city_id::uuid ORDER BY rank"
         return self.db.query(sql, [{'name': 'city_id', 'value': {'stringValue': city_id}}])
 
-    def create_dish(self, dish: DishCreate) -> str:
-        data = dish.model_dump(exclude_none=True)
-        return self.db.insert('dishes', data, returning='id')
-
-    def delete_by_city(self, city_id: str) -> int:
-        return self.db.delete('dishes', "city_id = :city_id::uuid", {'city_id': city_id})
+    def upsert_dish(self, dish: 'DishCreate') -> str:
+        sql = """
+            INSERT INTO dishes (city_id, name, description, rank, cuisine_type, tags, image_query)
+            VALUES (:city_id::uuid, :name, :description, :rank, :cuisine_type, :tags::jsonb, :image_query)
+            ON CONFLICT (city_id, lower(name))
+            DO UPDATE SET
+                rank         = EXCLUDED.rank,
+                description  = EXCLUDED.description,
+                cuisine_type = EXCLUDED.cuisine_type,
+                tags         = EXCLUDED.tags,
+                image_query  = EXCLUDED.image_query,
+                updated_at   = NOW()
+            RETURNING id
+        """
+        import json
+        result = self.db.query_one(sql, [
+            {'name': 'city_id',      'value': {'stringValue': str(dish.city_id)}},
+            {'name': 'name',         'value': {'stringValue': dish.name}},
+            {'name': 'description',  'value': {'stringValue': dish.description or ''}},
+            {'name': 'rank',         'value': {'longValue': dish.rank}},
+            {'name': 'cuisine_type', 'value': {'stringValue': dish.cuisine_type or ''}},
+            {'name': 'tags',         'value': {'stringValue': json.dumps(dish.tags or [])}},
+            {'name': 'image_query',  'value': {'stringValue': dish.image_query or ''}},
+        ])
+        return result['id']
 
 
 class Restaurants(BaseModel):
@@ -107,7 +126,16 @@ class Restaurants(BaseModel):
         sql = "SELECT * FROM restaurants WHERE dish_id = :dish_id::uuid ORDER BY rank"
         return self.db.query(sql, [{'name': 'dish_id', 'value': {'stringValue': dish_id}}])
 
-    def create_restaurant(self, restaurant: RestaurantCreate) -> str:
+    def find_by_ids(self, ids: List[str]) -> List[Dict]:
+        if not ids:
+            return []
+        # Build one param per id — Data API doesn't support array binding
+        placeholders = ", ".join(f":id{i}::uuid" for i in range(len(ids)))
+        sql = f"SELECT * FROM restaurants WHERE id IN ({placeholders}) ORDER BY rank"
+        params = [{'name': f'id{i}', 'value': {'stringValue': id_}} for i, id_ in enumerate(ids)]
+        return self.db.query(sql, params)
+
+    def create_restaurant(self, restaurant: 'RestaurantCreate') -> str:
         data = restaurant.model_dump(exclude_none=True)
         return self.db.insert('restaurants', data, returning='id')
 
@@ -229,6 +257,16 @@ class WishlistItems(BaseModel):
             {'name': 'dish_id', 'value': {'stringValue': dish_id}},
         ])
 
+    def find_by_user_and_category(self, clerk_user_id: str, dish_name: str, city_name: str) -> Optional[Dict]:
+        sql = """SELECT * FROM wishlist_items
+                 WHERE clerk_user_id = :uid AND dish_id IS NULL
+                   AND dish_name = :dish_name AND city_name = :city_name"""
+        return self.db.query_one(sql, [
+            {'name': 'uid',       'value': {'stringValue': clerk_user_id}},
+            {'name': 'dish_name', 'value': {'stringValue': dish_name}},
+            {'name': 'city_name', 'value': {'stringValue': city_name}},
+        ])
+
     def create_item(self, clerk_user_id: str, item: 'WishlistItemCreate', dish_name: str, city_name: str, country: str) -> str:
         restaurant_ids = [item.restaurant_id] if item.restaurant_id else []
         data: Dict = {
@@ -247,14 +285,27 @@ class WishlistItems(BaseModel):
     def append_restaurant(self, item_id: str, restaurant_id: str) -> None:
         sql = """
             UPDATE wishlist_items
+            SET restaurant_ids = restaurant_ids || jsonb_build_array(:rid)
+            WHERE id = :id::uuid
+              AND NOT (restaurant_ids @> jsonb_build_array(:rid))
+        """
+        self.db.execute(sql, [
+            {'name': 'rid', 'value': {'stringValue': restaurant_id}},
+            {'name': 'id',  'value': {'stringValue': item_id}},
+        ])
+
+    def remove_restaurant(self, item_id: str, restaurant_id: str) -> None:
+        sql = """
+            UPDATE wishlist_items
             SET restaurant_ids = (
-                SELECT jsonb_agg(DISTINCT val)
-                FROM jsonb_array_elements_text(restaurant_ids || :rid::jsonb) AS val
+                SELECT COALESCE(jsonb_agg(val), '[]'::jsonb)
+                FROM jsonb_array_elements_text(restaurant_ids) AS val
+                WHERE val <> :rid
             )
             WHERE id = :id::uuid
         """
         self.db.execute(sql, [
-            {'name': 'rid', 'value': {'stringValue': f'["{restaurant_id}"]'}},
+            {'name': 'rid', 'value': {'stringValue': restaurant_id}},
             {'name': 'id',  'value': {'stringValue': item_id}},
         ])
 
@@ -276,10 +327,20 @@ class ItineraryItems(BaseModel):
                    (SELECT COUNT(*) FROM passport_entries pe
                     WHERE pe.clerk_user_id = ii.clerk_user_id
                       AND pe.dish_id = ii.dish_id) AS eaten_count,
-                   (SELECT r.latitude  FROM restaurants r
-                    WHERE r.dish_id = ii.dish_id AND r.latitude  IS NOT NULL LIMIT 1) AS latitude,
-                   (SELECT r.longitude FROM restaurants r
-                    WHERE r.dish_id = ii.dish_id AND r.longitude IS NOT NULL LIMIT 1) AS longitude
+                   COALESCE(
+                       (SELECT r.latitude  FROM restaurants r
+                        WHERE r.id = (ii.restaurant_ids->>0)::uuid
+                          AND r.latitude IS NOT NULL LIMIT 1),
+                       (SELECT r.latitude  FROM restaurants r
+                        WHERE r.dish_id = ii.dish_id AND r.latitude IS NOT NULL LIMIT 1)
+                   ) AS latitude,
+                   COALESCE(
+                       (SELECT r.longitude FROM restaurants r
+                        WHERE r.id = (ii.restaurant_ids->>0)::uuid
+                          AND r.longitude IS NOT NULL LIMIT 1),
+                       (SELECT r.longitude FROM restaurants r
+                        WHERE r.dish_id = ii.dish_id AND r.longitude IS NOT NULL LIMIT 1)
+                   ) AS longitude
             FROM itinerary_items ii
             LEFT JOIN dishes d ON ii.dish_id = d.id
             LEFT JOIN cities c ON d.city_id = c.id
@@ -299,10 +360,20 @@ class ItineraryItems(BaseModel):
                    (SELECT COUNT(*) FROM passport_entries pe
                     WHERE pe.clerk_user_id = ii.clerk_user_id
                       AND pe.dish_id = ii.dish_id) AS eaten_count,
-                   (SELECT r.latitude  FROM restaurants r
-                    WHERE r.dish_id = ii.dish_id AND r.latitude  IS NOT NULL LIMIT 1) AS latitude,
-                   (SELECT r.longitude FROM restaurants r
-                    WHERE r.dish_id = ii.dish_id AND r.longitude IS NOT NULL LIMIT 1) AS longitude
+                   COALESCE(
+                       (SELECT r.latitude  FROM restaurants r
+                        WHERE r.id = (ii.restaurant_ids->>0)::uuid
+                          AND r.latitude IS NOT NULL LIMIT 1),
+                       (SELECT r.latitude  FROM restaurants r
+                        WHERE r.dish_id = ii.dish_id AND r.latitude IS NOT NULL LIMIT 1)
+                   ) AS latitude,
+                   COALESCE(
+                       (SELECT r.longitude FROM restaurants r
+                        WHERE r.id = (ii.restaurant_ids->>0)::uuid
+                          AND r.longitude IS NOT NULL LIMIT 1),
+                       (SELECT r.longitude FROM restaurants r
+                        WHERE r.dish_id = ii.dish_id AND r.longitude IS NOT NULL LIMIT 1)
+                   ) AS longitude
             FROM itinerary_items ii
             LEFT JOIN dishes d ON ii.dish_id = d.id
             LEFT JOIN cities c ON d.city_id = c.id
@@ -321,12 +392,61 @@ class ItineraryItems(BaseModel):
             {'name': 'dish_id', 'value': {'stringValue': dish_id}},
         ])
 
+    def find_by_itinerary_and_dish(self, itinerary_id: str, dish_id: str) -> Optional[Dict]:
+        sql = """
+            SELECT * FROM itinerary_items
+            WHERE itinerary_id = :itinerary_id::uuid AND dish_id = :dish_id::uuid
+        """
+        return self.db.query_one(sql, [
+            {'name': 'itinerary_id', 'value': {'stringValue': itinerary_id}},
+            {'name': 'dish_id',      'value': {'stringValue': dish_id}},
+        ])
+
+    def find_by_itinerary_and_category(self, itinerary_id: str, dish_name: str, city_name: str) -> Optional[Dict]:
+        sql = """SELECT * FROM itinerary_items
+                 WHERE itinerary_id = :itinerary_id::uuid AND dish_id IS NULL
+                   AND dish_name = :dish_name AND city_name = :city_name"""
+        return self.db.query_one(sql, [
+            {'name': 'itinerary_id', 'value': {'stringValue': itinerary_id}},
+            {'name': 'dish_name',    'value': {'stringValue': dish_name}},
+            {'name': 'city_name',    'value': {'stringValue': city_name}},
+        ])
+
+    def append_restaurant(self, item_id: str, restaurant_id: str) -> None:
+        sql = """
+            UPDATE itinerary_items
+            SET restaurant_ids = restaurant_ids || jsonb_build_array(:rid)
+            WHERE id = :id::uuid
+              AND NOT (restaurant_ids @> jsonb_build_array(:rid))
+        """
+        self.db.execute(sql, [
+            {'name': 'rid', 'value': {'stringValue': restaurant_id}},
+            {'name': 'id',  'value': {'stringValue': item_id}},
+        ])
+
+    def remove_restaurant(self, item_id: str, restaurant_id: str) -> None:
+        sql = """
+            UPDATE itinerary_items
+            SET restaurant_ids = (
+                SELECT COALESCE(jsonb_agg(val), '[]'::jsonb)
+                FROM jsonb_array_elements_text(restaurant_ids) AS val
+                WHERE val <> :rid
+            )
+            WHERE id = :id::uuid
+        """
+        self.db.execute(sql, [
+            {'name': 'rid', 'value': {'stringValue': restaurant_id}},
+            {'name': 'id',  'value': {'stringValue': item_id}},
+        ])
+
     def create_item(self, clerk_user_id: str, item: ItineraryItemCreate, dish_name: str, city_name: str, country: str) -> str:
+        restaurant_ids = [item.restaurant_id] if item.restaurant_id else []
         data: Dict = {
             'clerk_user_id': clerk_user_id,
             'dish_name': dish_name,
             'city_name': city_name,
             'country': country,
+            'restaurant_ids': restaurant_ids,
         }
         if item.dish_id:
             data['dish_id'] = item.dish_id
@@ -334,8 +454,6 @@ class ItineraryItems(BaseModel):
             data['notes'] = item.notes
         if item.itinerary_id:
             data['itinerary_id'] = item.itinerary_id
-        if item.restaurant_id:
-            data['restaurant_id'] = item.restaurant_id
         return self.db.insert('itinerary_items', data, returning='id')
 
     def delete_item(self, item_id: str) -> int:

@@ -33,7 +33,7 @@ interface ItineraryItem {
   created_at: string;
   latitude: number | null;
   longitude: number | null;
-  restaurant_id: string | null;
+  restaurant_ids: string[];
 }
 
 interface Restaurant {
@@ -68,6 +68,8 @@ export default function Itinerary() {
   const [loadingItems, setLoadingItems] = useState(false);
   const [selectedItem, setSelectedItem] = useState<ItineraryItem | null>(null);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [foundRestaurants, setFoundRestaurants] = useState<Restaurant[]>([]);
+  const [restaurantCache, setRestaurantCache] = useState<Record<string, Restaurant>>({});
   const [passportEntries, setPassportEntries] = useState<PassportEntry[]>([]);
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
   const [markingEaten, setMarkingEaten] = useState(false);
@@ -106,6 +108,7 @@ export default function Itinerary() {
     setLoadingItems(true);
     setSelectedItem(null);
     setRestaurants([]);
+    setRestaurantCache({});
     try {
       const token = await getToken();
       if (!token) return;
@@ -185,28 +188,41 @@ export default function Itinerary() {
     }
   };
 
+  const fetchRestaurants = async (token: string, dishId: string | null | undefined, savedIds: string[]): Promise<Restaurant[]> => {
+    let all: Restaurant[] = [];
+    if (dishId) {
+      const res = await fetch(`${API_URL}/api/dishes/${dishId}/restaurants`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) all = (await res.json()).restaurants || [];
+    } else if (savedIds.length > 0) {
+      const res = await fetch(`${API_URL}/api/restaurants/by-ids`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: savedIds }),
+      });
+      if (res.ok) all = (await res.json()).restaurants || [];
+    }
+    const filtered = savedIds.length > 0 ? all.filter(r => savedIds.includes(r.id)) : all;
+    return [...filtered].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0));
+  };
+
   const openDish = async (item: ItineraryItem) => {
     setSelectedItem(item);
     setRestaurants([]);
-    if (!item.dish_id) return;
+    setFoundRestaurants([]);
+    const savedIds = item.restaurant_ids || [];
+    if (!item.dish_id && savedIds.length === 0) return;
     setLoadingRestaurants(true);
     try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/dishes/${item.dish_id}/restaurants`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const token = (await getToken()) ?? "";
+      const loaded = await fetchRestaurants(token, item.dish_id, savedIds);
+      setRestaurants(loaded);
+      setRestaurantCache(prev => {
+        const next = { ...prev };
+        loaded.forEach(r => { next[r.id] = r; });
+        return next;
       });
-      if (res.ok) {
-        const data = await res.json();
-        const all: Restaurant[] = data.restaurants || [];
-        // Show only the pinned restaurant if one was saved, otherwise show all
-        const filtered = item.restaurant_id
-          ? all.filter(r => r.id === item.restaurant_id)
-          : all;
-        const sorted = [...filtered].sort(
-          (a: Restaurant, b: Restaurant) => (b.google_rating ?? 0) - (a.google_rating ?? 0)
-        );
-        setRestaurants(sorted);
-      }
     } catch { /* silent */ } finally {
       setLoadingRestaurants(false);
     }
@@ -235,7 +251,14 @@ export default function Itinerary() {
             clearInterval(interval);
             setRankingRestaurants(false);
             setRankingStatus("");
-            await openDish(item);
+            const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
+            const rList = (rPayload.restaurants as Restaurant[]) || [];
+            // Refresh saved list then show new results separately
+            const t2 = await getToken();
+            const saved = await fetchRestaurants(t2 ?? "", item.dish_id, item.restaurant_ids || []);
+            setRestaurants(saved);
+            const savedIds = new Set(saved.map((r: Restaurant) => r.id));
+            setFoundRestaurants(rList.filter((r: Restaurant) => !savedIds.has(r.id)).sort((a: Restaurant, b: Restaurant) => (b.google_rating ?? 0) - (a.google_rating ?? 0)));
           } else if (job.status === "failed") {
             clearInterval(interval);
             setRankingRestaurants(false);
@@ -250,6 +273,45 @@ export default function Itinerary() {
       setRankingRestaurants(false);
       setRankingStatus("");
       showToast("error", "Failed to start restaurant search.");
+    }
+  };
+
+  const handleRemoveRestaurant = async (itineraryItemId: string, restaurantId: string) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/itinerary-items/${itineraryItemId}/restaurants/${restaurantId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setRestaurants(prev => prev.filter(r => r.id !== restaurantId));
+      setSelectedItem(prev => prev ? { ...prev, restaurant_ids: prev.restaurant_ids.filter(id => id !== restaurantId) } : prev);
+      setItems(prev => prev.map(i => i.id === itineraryItemId ? { ...i, restaurant_ids: i.restaurant_ids.filter(id => id !== restaurantId) } : i));
+    } catch {
+      showToast("error", "Failed to remove restaurant.");
+    }
+  };
+
+  const handleAddFoundRestaurant = async (restaurant: Restaurant) => {
+    if (!selectedItem || !activeId) return;
+    try {
+      const token = await getToken();
+      const body = selectedItem.dish_id
+        ? { dish_id: selectedItem.dish_id, restaurant_id: restaurant.id }
+        : { dish_name: selectedItem.dish_name, city_name: selectedItem.city_name, country: selectedItem.country, restaurant_id: restaurant.id };
+      const res = await fetch(`${API_URL}/api/itineraries/${activeId}/items`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setFoundRestaurants(prev => prev.filter(r => r.id !== restaurant.id));
+      setRestaurants(prev => [...prev, restaurant]);
+      setRestaurantCache(prev => ({ ...prev, [restaurant.id]: restaurant }));
+      setSelectedItem(prev => prev ? { ...prev, restaurant_ids: [...prev.restaurant_ids, restaurant.id] } : prev);
+      setItems(prev => prev.map(i => i.id === selectedItem.id ? { ...i, restaurant_ids: [...i.restaurant_ids, restaurant.id] } : i));
+    } catch {
+      showToast("error", "Failed to add restaurant.");
     }
   };
 
@@ -449,7 +511,25 @@ export default function Itinerary() {
                     {/* Left: map + list */}
                     <div className="lg:col-span-2 space-y-6">
                       <div className="bg-white rounded-xl shadow overflow-hidden" style={{ height: 320 }}>
-                        <ItineraryMap items={items} onPinClick={openDish} selectedItem={selectedItem} />
+                        <ItineraryMap
+                          items={items.flatMap(item => {
+                            const savedIds = item.restaurant_ids || [];
+                            const cached = savedIds.map(id => restaurantCache[id]).filter(Boolean);
+                            const pinnable = cached.filter(r => r.latitude != null && r.longitude != null);
+                            if (pinnable.length > 0) {
+                              return pinnable.map(r => ({
+                                ...item,
+                                latitude: r.latitude,
+                                longitude: r.longitude,
+                                restaurant_name: r.name,
+                              }));
+                            }
+                            // fall back to item-level coords from DB query
+                            return [{ ...item, restaurant_name: null as string | null }];
+                          })}
+                          onPinClick={openDish}
+                          selectedItem={selectedItem}
+                        />
                       </div>
 
                       <div className="space-y-6">
@@ -548,76 +628,91 @@ export default function Itinerary() {
                           <div>
                             <div className="flex items-center justify-between mb-3">
                               <h4 className="text-sm font-semibold text-dark">Where to eat</h4>
-                              {selectedItem.dish_id && (
-                                <Link href={`/explore?dish=${selectedItem.dish_id}`} className="text-xs text-primary hover:underline">
-                                  Search more →
-                                </Link>
+                              {selectedItem.dish_id && !rankingRestaurants && (
+                                <button
+                                  onClick={() => findRestaurants(selectedItem!)}
+                                  className="text-xs text-primary hover:underline"
+                                >🔍 Find more</button>
                               )}
                             </div>
 
                             {loadingRestaurants ? (
-                              <p className="text-xs text-gray-400 text-center py-4">Loading restaurants…</p>
-                            ) : restaurants.length === 0 ? (
-                              <div className="text-center py-6">
-                                {rankingRestaurants ? (
-                                  <>
-                                    <div className="text-2xl mb-2 animate-pulse">🌍</div>
-                                    <p className="text-xs text-gray-500 mb-1">{rankingStatus}</p>
-                                    <p className="text-xs text-gray-400">Usually 20–40 seconds…</p>
-                                  </>
-                                ) : (
-                                  <>
-                                    <p className="text-xs text-gray-400 mb-3">No restaurants found yet.</p>
-                                    {selectedItem?.dish_id && (
-                                      <button
-                                        onClick={() => findRestaurants(selectedItem)}
-                                        className="text-xs px-4 py-2 bg-primary text-white rounded-lg hover:bg-purple-700"
-                                      >
-                                        🔍 Find restaurants
-                                      </button>
-                                    )}
-                                  </>
-                                )}
-                              </div>
+                              <p className="text-xs text-gray-400 text-center py-4">Loading…</p>
                             ) : (
-                              <div className="space-y-3">
+                              <div className="space-y-2">
+                                {restaurants.length === 0 && foundRestaurants.length === 0 && !rankingRestaurants && (
+                                  <p className="text-xs text-gray-400 text-center py-4">No restaurants saved yet.{selectedItem.dish_id ? " Click \"Find more\" to search." : ""}</p>
+                                )}
+                                {/* Saved restaurants */}
                                 {restaurants.map(r => {
                                   const eaten = isRestaurantEaten(r.id);
                                   return (
                                     <div key={r.id} className={`rounded-lg border p-3 transition-all ${eaten ? "border-green-200 bg-green-50" : "border-gray-100 hover:border-primary"}`}>
                                       <div className="flex items-start justify-between gap-2 mb-1">
                                         <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
-                                        {r.google_rating && (
-                                          <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>
-                                        )}
+                                        {r.google_rating && <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>}
                                       </div>
                                       {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
-                                      {r.rank_rationale && (
-                                        <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
-                                      )}
+                                      {r.rank_rationale && <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>}
                                       <div className="flex items-center gap-2 flex-wrap">
                                         {!selectedItem?.dish_id ? (
                                           <span className="text-xs text-gray-400 italic">Discover this dish from Explore to track it</span>
                                         ) : eaten ? (
                                           <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
                                         ) : (
-                                          <button
-                                            onClick={() => handleMarkEaten(r)}
-                                            disabled={markingEaten}
-                                            className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
-                                          >
+                                          <button onClick={() => handleMarkEaten(r)} disabled={markingEaten}
+                                            className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors">
                                             {markingEaten ? "Saving…" : "✓ Already Been"}
                                           </button>
                                         )}
                                         {r.google_maps_url && (
-                                          <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
-                                            📍 Maps
-                                          </a>
+                                          <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">📍 Maps</a>
                                         )}
+                                        <button onClick={() => handleRemoveRestaurant(selectedItem!.id, r.id)}
+                                          className="ml-auto text-xs text-red-300 hover:text-red-500 transition-colors" title="Remove from list">✕</button>
                                       </div>
                                     </div>
                                   );
                                 })}
+
+                                {/* Ranking in progress */}
+                                {rankingRestaurants && (
+                                  <div className="text-center py-4">
+                                    <div className="text-2xl mb-2 animate-pulse">🌍</div>
+                                    <p className="text-xs text-gray-500 mb-1">{rankingStatus}</p>
+                                    <p className="text-xs text-gray-400">Usually 20–40 seconds…</p>
+                                  </div>
+                                )}
+
+                                {/* Found restaurants (not yet saved) */}
+                                {foundRestaurants.length > 0 && (
+                                  <>
+                                    <div className="flex items-center gap-2 my-3">
+                                      <div className="flex-1 h-px bg-gray-100" />
+                                      <span className="text-xs text-gray-400 font-medium">Found nearby</span>
+                                      <div className="flex-1 h-px bg-gray-100" />
+                                    </div>
+                                    {foundRestaurants.map(r => (
+                                      <div key={r.id} className="rounded-lg border border-dashed border-gray-200 p-3 bg-gray-50">
+                                        <div className="flex items-start justify-between gap-2 mb-1">
+                                          <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
+                                          {r.google_rating && <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>}
+                                        </div>
+                                        {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
+                                        {r.rank_rationale && <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>}
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <button onClick={() => handleAddFoundRestaurant(r)}
+                                            className="text-xs px-3 py-1 bg-primary text-white rounded-lg hover:bg-purple-700 font-medium transition-colors">
+                                            ＋ Add
+                                          </button>
+                                          {r.google_maps_url && (
+                                            <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">📍 Maps</a>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>

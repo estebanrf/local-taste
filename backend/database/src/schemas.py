@@ -44,7 +44,7 @@ class DishResponse(DishCreate):
 # ── Restaurant ────────────────────────────────────────────────────────────────
 
 class RestaurantCreate(BaseModel):
-    dish_id: str = Field(description="UUID of the dish this restaurant serves")
+    dish_id: Optional[str] = Field(None, description="UUID of the dish this restaurant serves (None for category restaurants)")
     name: str = Field(description="Restaurant name")
     address: Optional[str] = Field(None, description="Full street address")
     google_maps_url: Optional[str] = Field(None, description="Google Maps link")

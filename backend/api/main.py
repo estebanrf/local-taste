@@ -368,6 +368,19 @@ async def get_dish_restaurants(dish_id: str, clerk_user_id: str = Depends(get_cu
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/restaurants/by-ids")
+async def get_restaurants_by_ids(body: dict, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        ids = body.get("ids") or []
+        if not ids:
+            return {"restaurants": []}
+        restaurants = db.restaurants.find_by_ids(ids)
+        return {"restaurants": restaurants}
+    except Exception as e:
+        logger.error(f"Error fetching restaurants by ids: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Food Passport ──────────────────────────────────────────────────────────────
 
 @app.get("/api/passport")
@@ -529,12 +542,22 @@ async def add_item_to_itinerary(
             dish_name = dish["name"]
             city_name = city["name"]
             country = city["country"]
+            existing = db.itinerary.find_by_itinerary_and_dish(itinerary_id, item.dish_id)
+            if existing:
+                if item.restaurant_id:
+                    db.itinerary.append_restaurant(existing["id"], item.restaurant_id)
+                return {"id": existing["id"], "ok": True, "already_exists": True}
         else:
             if not item.dish_name or not item.city_name or not item.country:
                 raise HTTPException(status_code=400, detail="dish_name, city_name, and country required")
             dish_name = item.dish_name
             city_name = item.city_name
             country = item.country
+            existing = db.itinerary.find_by_itinerary_and_category(itinerary_id, dish_name, city_name)
+            if existing:
+                if item.restaurant_id:
+                    db.itinerary.append_restaurant(existing["id"], item.restaurant_id)
+                return {"id": existing["id"], "ok": True, "already_exists": True}
 
         item.itinerary_id = itinerary_id
         item_id = db.itinerary.create_item(clerk_user_id=clerk_user_id, item=item, dish_name=dish_name, city_name=city_name, country=country)
@@ -612,6 +635,11 @@ async def add_wishlist_item(item: WishlistItemCreate, clerk_user_id: str = Depen
             dish_name = item.dish_name
             city_name = item.city_name
             country = item.country
+            existing = db.wishlist.find_by_user_and_category(clerk_user_id, dish_name, city_name)
+            if existing:
+                if item.restaurant_id:
+                    db.wishlist.append_restaurant(existing["id"], item.restaurant_id)
+                return {"id": existing["id"], "ok": True, "already_exists": True}
 
         item_id = db.wishlist.create_item(clerk_user_id=clerk_user_id, item=item, dish_name=dish_name, city_name=city_name, country=country)
         logger.info(f"Wishlist: added {dish_name} user={clerk_user_id}")
@@ -637,6 +665,40 @@ async def delete_wishlist_item(item_id: str, clerk_user_id: str = Depends(get_cu
         raise
     except Exception as e:
         logger.error(f"Error deleting wishlist item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/wishlist/{item_id}/restaurants/{restaurant_id}")
+async def remove_wishlist_restaurant(item_id: str, restaurant_id: str, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        item = db.wishlist.find_by_id(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Wishlist item not found")
+        if item.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db.wishlist.remove_restaurant(item_id, restaurant_id)
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing restaurant from wishlist item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/itinerary-items/{item_id}/restaurants/{restaurant_id}")
+async def remove_itinerary_restaurant(item_id: str, restaurant_id: str, clerk_user_id: str = Depends(get_current_user_id)):
+    try:
+        item = db.itinerary.find_by_id(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Itinerary item not found")
+        if item.get("clerk_user_id") != clerk_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        db.itinerary.remove_restaurant(item_id, restaurant_id)
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing restaurant from itinerary item: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

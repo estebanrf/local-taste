@@ -48,8 +48,6 @@ def _save_discovery_results(job_id: str, result_text: str, city: str, country: s
             city_id = db.cities.upsert_city(city_obj)
             logger.info(f"DishDiscoverer: upserted city_id={city_id}")
 
-        db.dishes.delete_by_city(city_id)
-
         dishes = data.get("dishes", [])
         for dish_data in dishes[:5]:
             dish = DishCreate(
@@ -61,8 +59,8 @@ def _save_discovery_results(job_id: str, result_text: str, city: str, country: s
                 tags=dish_data.get("tags", []),
                 image_query=dish_data.get("image_query"),
             )
-            db.dishes.create_dish(dish)
-            logger.info(f"DishDiscoverer: saved dish rank={dish_data.get('rank')} name={dish_data['name']}")
+            db.dishes.upsert_dish(dish)
+            logger.info(f"DishDiscoverer: upserted dish rank={dish_data.get('rank')} name={dish_data['name']}")
 
         db.jobs.update_dishes(job_id, {"city_id": city_id, "city": city, "country": country, "dishes": dishes})
         db.jobs.update_summary(job_id, {"city_id": city_id, "dishes_saved": len(dishes)})

@@ -50,35 +50,40 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
         restaurants = data.get("restaurants", [])
         logger.info(f"RestaurantRanker: parsed JSON, {len(restaurants)} restaurants found")
 
-        if not category_mode and dish_id:
+        valid_prices = {"$", "$$", "$$$", "$$$$"}
+
+        def _build_and_save(r: dict, dish_id_val) -> str:
+            lat, lng = _extract_coords(r.get("google_maps_url"))
+            lat = r.get("latitude") or lat
+            lng = r.get("longitude") or lng
+            raw_price = r.get("price_level") or None
+            rest = RestaurantCreate(
+                dish_id=dish_id_val or None,
+                name=r["name"],
+                address=r.get("address"),
+                google_maps_url=r.get("google_maps_url") or None,
+                google_rating=r.get("google_rating"),
+                review_count=r.get("review_count"),
+                price_level=raw_price if raw_price in valid_prices else None,
+                rank=r.get("rank", 1),
+                rank_rationale=r.get("rank_rationale", ""),
+                highlights=r.get("highlights", []),
+                latitude=lat,
+                longitude=lng,
+            )
+            saved_id = db.restaurants.create_restaurant(rest)
+            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} coords={lat},{lng}")
+            return saved_id
+
+        if dish_id and not category_mode:
             db.restaurants.delete_by_dish(dish_id)
             for r in restaurants[:5]:
-                lat, lng = _extract_coords(r.get("google_maps_url"))
-                lat = r.get("latitude") or lat
-                lng = r.get("longitude") or lng
-                raw_price = r.get("price_level") or None
-                valid_prices = {"$", "$$", "$$$", "$$$$"}
-                price_level_val = raw_price if raw_price in valid_prices else None
-                rest = RestaurantCreate(
-                    dish_id=dish_id,
-                    name=r["name"],
-                    address=r.get("address"),
-                    google_maps_url=r.get("google_maps_url"),
-                    google_rating=r.get("google_rating"),
-                    review_count=r.get("review_count"),
-                    price_level=price_level_val,
-                    rank=r.get("rank", 1),
-                    rank_rationale=r.get("rank_rationale", ""),
-                    highlights=r.get("highlights", []),
-                    latitude=lat,
-                    longitude=lng,
-                )
-                db.restaurants.create_restaurant(rest)
-                logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} coords={lat},{lng}")
-            # Use the DB rows (with real UUIDs) as the job payload so the frontend has correct IDs
+                _build_and_save(r, dish_id)
             restaurants = db.restaurants.find_by_dish(dish_id)
         else:
-            logger.info(f"RestaurantRanker: category_mode={category_mode} — skipping DB write, results in job payload only")
+            # Category mode — persist to DB so restaurant_ids remain valid across sessions
+            saved_ids = [_build_and_save(r, None) for r in restaurants[:5]]
+            restaurants = db.restaurants.find_by_ids(saved_ids)
 
         db.jobs.update_restaurants(job_id, {"dish_id": dish_id, "restaurants": restaurants})
         logger.info(f"RestaurantRanker: done, {len(restaurants)} restaurants (category_mode={category_mode})")

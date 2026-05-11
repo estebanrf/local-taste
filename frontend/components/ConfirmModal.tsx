@@ -1,4 +1,5 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -23,9 +24,12 @@ export default function ConfirmModal({
   onCancel,
   isProcessing = false,
 }: ConfirmModalProps) {
-  if (!isOpen) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); return () => setMounted(false); }, []);
 
-  return (
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-xl">
         <div className="mb-4">
@@ -53,6 +57,7 @@ export default function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

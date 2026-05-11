@@ -60,10 +60,12 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             location = r.get("geometry", {}).get("location", {})
             lat = location.get("lat")
             lng = location.get("lng")
-            maps_url = (
-                f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-                if place_id else ""
-            )
+            if place_id:
+                maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+            else:
+                import urllib.parse
+                query_str = urllib.parse.quote_plus(f"{name} {address}".strip())
+                maps_url = f"https://www.google.com/maps/search/?q={query_str}"
             price_str = "$" * price_level if isinstance(price_level, int) and price_level > 0 else "unknown"
             lines.append(
                 f"**{name}**\n"

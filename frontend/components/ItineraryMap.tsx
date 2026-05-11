@@ -17,7 +17,8 @@ interface MapItem {
   created_at: string;
   latitude: number | null;
   longitude: number | null;
-  restaurant_id: string | null;
+  restaurant_ids: string[];
+  restaurant_name?: string | null;
 }
 
 interface Props {
@@ -78,7 +79,8 @@ export default function ItineraryMap({ items, onPinClick, selectedItem }: Props)
         const marker = L.marker([item.latitude as number, item.longitude as number], { icon })
           .bindPopup(`
             <div style="min-width:140px">
-              <p style="font-weight:600;margin-bottom:2px">${item.dish_name}</p>
+              <p style="font-weight:600;margin-bottom:2px">${item.restaurant_name ?? item.dish_name}</p>
+              ${item.restaurant_name ? `<p style="color:#374151;font-size:12px;margin-bottom:2px">${item.dish_name}</p>` : ""}
               <p style="color:#6b7280;font-size:12px">${item.city_name}, ${item.country}</p>
               ${item.eaten_count > 0 ? `<p style="color:#16a34a;font-size:12px;margin-top:4px">✓ Tried ${item.eaten_count}×</p>` : ""}
             </div>

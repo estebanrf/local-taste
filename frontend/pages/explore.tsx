@@ -333,9 +333,11 @@ export default function Explore() {
     setSaving(true);
     try {
       const token = await getToken();
+      // Strip emoji and leading/trailing whitespace for DB keys on category items
+      const dbDishName = saveModal.dishName.replace(/\p{Emoji_Presentation}\s*/gu, "").trim();
       const baseBody = saveModal.dishId
         ? { dish_id: saveModal.dishId, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined }
-        : { dish_name: saveModal.dishName, city_name: saveModal.cityName, country: saveModal.country, notes: saveNotes || undefined };
+        : { dish_name: dbDishName, city_name: saveModal.cityName, country: saveModal.country, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined };
 
       if (saveDestination === "wishlist") {
         const res = await fetch(`${API_URL}/api/wishlist`, {
