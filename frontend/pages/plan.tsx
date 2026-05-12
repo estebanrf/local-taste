@@ -391,15 +391,18 @@ export default function Plan() {
   };
 
   const findRestaurants = async (item: ItineraryItem) => {
-    if (!item.dish_id) return;
     setRankingRestaurants(true);
     setRankingStatus("Finding the best spots…");
     try {
       const token = await getToken();
-      const res = await fetch(`${API_URL}/api/rank-restaurants`, {
+      const endpoint = item.dish_id ? "/api/rank-restaurants" : "/api/rank-by-category";
+      const body = item.dish_id
+        ? { dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }
+        : { category: item.dish_name, city: item.city_name, country: item.country };
+      const res = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(await res.text());
       const { job_id } = await res.json();
@@ -886,7 +889,7 @@ export default function Plan() {
                               <div>
                                 <div className="flex items-center justify-between mb-3">
                                   <h4 className="text-sm font-semibold text-dark">Where to eat</h4>
-                                  {selectedItem.dish_id && !rankingRestaurants && (
+                                  {!rankingRestaurants && (
                                     <button onClick={() => findRestaurants(selectedItem!)} className="text-xs text-primary hover:underline">
                                       🔍 Find more
                                     </button>
@@ -898,7 +901,7 @@ export default function Plan() {
                                   <div className="space-y-2">
                                     {restaurants.length === 0 && foundRestaurants.length === 0 && !rankingRestaurants && (
                                       <p className="text-xs text-gray-400 text-center py-4">
-                                        No restaurants saved yet.{selectedItem.dish_id ? " Click \"Find more\" to search." : ""}
+                                        No restaurants saved yet. Click &ldquo;Find more&rdquo; to search.
                                       </p>
                                     )}
                                     {restaurants.map(r => {
