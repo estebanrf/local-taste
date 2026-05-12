@@ -40,6 +40,9 @@ export default function Passport() {
   const [editRating, setEditRating] = useState<number>(0);
   const [editNotes, setEditNotes] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [cityFilter, setCityFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [homeCity, setHomeCity] = useState("");
@@ -260,9 +263,34 @@ export default function Passport() {
                 </button>
               </Link>
             </div>
-          ) : (
+          ) : (() => {
+            const cities = Array.from(new Set(entries.map(e => e.city_name))).sort();
+            const filtered = cityFilter === "all" ? entries : entries.filter(e => e.city_name === cityFilter);
+            const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+            const safePage = Math.min(currentPage, totalPages);
+            const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+            return (
+            <>
+              {/* Filter + count bar */}
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <select
+                  value={cityFilter}
+                  onChange={e => { setCityFilter(e.target.value); setCurrentPage(1); }}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+                >
+                  <option value="all">All cities ({entries.length})</option>
+                  {cities.map(c => (
+                    <option key={c} value={c}>{c} ({entries.filter(e => e.city_name === c).length})</option>
+                  ))}
+                </select>
+                <span className="text-sm text-gray-500">
+                  {filtered.length} entr{filtered.length !== 1 ? "ies" : "y"}
+                  {totalPages > 1 && ` · page ${safePage} of ${totalPages}`}
+                </span>
+              </div>
+
             <div className="space-y-3">
-              {entries.map(entry => (
+              {paged.map(entry => (
                 <div key={entry.id} className="bg-white rounded-lg shadow p-4">
                   {editingId === entry.id ? (
                     <div>
@@ -317,7 +345,34 @@ export default function Passport() {
                 </div>
               ))}
             </div>
-          )}
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-6">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >← Prev</button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setCurrentPage(p)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        p === safePage ? "bg-primary text-white" : "border border-gray-300 text-gray-600 hover:border-primary hover:text-primary"
+                      }`}
+                    >{p}</button>
+                  ))}
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >Next →</button>
+                </div>
+              )}
+            </>
+            );
+          })()}
         </div>
 
         {confirmDeleteId && (

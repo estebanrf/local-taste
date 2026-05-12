@@ -112,7 +112,7 @@ export default function Plan() {
   const [selectedItineraryIds, setSelectedItineraryIds] = useState<string[]>([]);
   const [tripModalNewName, setTripModalNewName] = useState("");
   const [addingToTrip, setAddingToTrip] = useState(false);
-  const [markingWishlistEaten, setMarkingWishlistEaten] = useState(false);
+  const [markingWishlistEaten, setMarkingWishlistEaten] = useState<Set<string>>(new Set());
 
   // ── Trips state ───────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -124,7 +124,7 @@ export default function Plan() {
   const [foundRestaurants, setFoundRestaurants] = useState<Restaurant[]>([]);
   const [restaurantCache, setRestaurantCache] = useState<Record<string, Restaurant>>({});
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
-  const [markingEaten, setMarkingEaten] = useState(false);
+  const [markingEaten, setMarkingEaten] = useState<Set<string>>(new Set());
   const [rankingRestaurants, setRankingRestaurants] = useState(false);
   const [rankingStatus, setRankingStatus] = useState("");
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
@@ -213,13 +213,14 @@ export default function Plan() {
   // ── Shared restaurant fetch ───────────────────────────────────────────────
 
   const fetchRestaurants = async (token: string, dishId: string | null | undefined, savedIds: string[]): Promise<Restaurant[]> => {
+    if (savedIds.length === 0) return [];
     let all: Restaurant[] = [];
     if (dishId) {
       const res = await fetch(`${API_URL}/api/dishes/${dishId}/restaurants`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) all = (await res.json()).restaurants || [];
-    } else if (savedIds.length > 0) {
+    } else {
       const res = await fetch(`${API_URL}/api/restaurants/by-ids`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -227,8 +228,7 @@ export default function Plan() {
       });
       if (res.ok) all = (await res.json()).restaurants || [];
     }
-    const filtered = savedIds.length > 0 ? all.filter(r => savedIds.includes(r.id)) : all;
-    return [...filtered].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0));
+    return [...all.filter(r => savedIds.includes(r.id))].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0));
   };
 
   // ── Wishlist handlers ─────────────────────────────────────────────────────
@@ -360,8 +360,8 @@ export default function Plan() {
   };
 
   const handleMarkWishlistDishEaten = async (item: WishlistItem) => {
-    if (!item.dish_id || markingWishlistEaten) return;
-    setMarkingWishlistEaten(true);
+    if (!item.dish_id || markingWishlistEaten.has(item.dish_id)) return;
+    setMarkingWishlistEaten(prev => new Set(prev).add(item.dish_id!));
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/passport`, {
@@ -378,13 +378,13 @@ export default function Plan() {
     } catch {
       showToast("error", "Failed to mark as eaten.");
     } finally {
-      setMarkingWishlistEaten(false);
+      setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; });
     }
   };
 
   const handleMarkWishlistRestaurantEaten = async (restaurant: Restaurant) => {
-    if (!selectedWishlistItem?.dish_id || markingWishlistEaten) return;
-    setMarkingWishlistEaten(true);
+    if (!selectedWishlistItem?.dish_id || markingWishlistEaten.has(restaurant.id)) return;
+    setMarkingWishlistEaten(prev => new Set(prev).add(restaurant.id));
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/passport`, {
@@ -401,7 +401,7 @@ export default function Plan() {
     } catch {
       showToast("error", "Failed to mark as eaten.");
     } finally {
-      setMarkingWishlistEaten(false);
+      setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; });
     }
   };
 
@@ -515,6 +515,7 @@ export default function Plan() {
       setSelectedItem(null);
       setRestaurants([]);
       setFoundRestaurants([]);
+      setFocusCoords(null);
       return;
     }
     setExpandedCityKey(cityKey);
@@ -681,8 +682,8 @@ export default function Plan() {
   };
 
   const handleMarkDishEaten = async (item: ItineraryItem) => {
-    if (!item.dish_id || markingEaten) return;
-    setMarkingEaten(true);
+    if (!item.dish_id || markingEaten.has(item.dish_id)) return;
+    setMarkingEaten(prev => new Set(prev).add(item.dish_id!));
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/passport`, {
@@ -700,13 +701,13 @@ export default function Plan() {
     } catch {
       showToast("error", "Failed to mark as eaten.");
     } finally {
-      setMarkingEaten(false);
+      setMarkingEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; });
     }
   };
 
   const handleMarkEaten = async (restaurant: Restaurant) => {
-    if (!selectedItem?.dish_id || markingEaten) return;
-    setMarkingEaten(true);
+    if (!selectedItem?.dish_id || markingEaten.has(restaurant.id)) return;
+    setMarkingEaten(prev => new Set(prev).add(restaurant.id));
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/passport`, {
@@ -724,7 +725,7 @@ export default function Plan() {
     } catch {
       showToast("error", "Failed to mark as eaten.");
     } finally {
-      setMarkingEaten(false);
+      setMarkingEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; });
     }
   };
 
@@ -923,10 +924,10 @@ export default function Plan() {
                                             {item.dish_id && !alreadyEaten && (
                                               <button
                                                 onClick={e => { e.stopPropagation(); handleMarkWishlistDishEaten(item); }}
-                                                disabled={markingWishlistEaten}
+                                                disabled={markingWishlistEaten.has(item.dish_id!)}
                                                 className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
                                               >
-                                                ✓ Eaten
+                                                {markingWishlistEaten.has(item.dish_id!) ? "Saving…" : "✓ Eaten"}
                                               </button>
                                             )}
                                             <button
@@ -1006,9 +1007,9 @@ export default function Plan() {
                                       {eaten ? (
                                         <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
                                       ) : selectedWishlistItem?.dish_id ? (
-                                        <button onClick={() => handleMarkWishlistRestaurantEaten(r)} disabled={markingWishlistEaten}
+                                        <button onClick={() => handleMarkWishlistRestaurantEaten(r)} disabled={markingWishlistEaten.has(r.id)}
                                           className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors">
-                                          {markingWishlistEaten ? "Saving…" : "✓ Already Been"}
+                                          {markingWishlistEaten.has(r.id) ? "Saving…" : "✓ Already Been"}
                                         </button>
                                       ) : null}
                                       {r.google_maps_url && (
@@ -1240,9 +1241,9 @@ export default function Plan() {
                                                 {item.dish_id && !eaten && (
                                                   <button
                                                     onClick={e => { e.stopPropagation(); handleMarkDishEaten(item); }}
-                                                    disabled={markingEaten}
+                                                    disabled={markingEaten.has(item.dish_id!)}
                                                     className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
-                                                  >✓ Eaten</button>
+                                                  >{markingEaten.has(item.dish_id!) ? "Saving…" : "✓ Eaten"}</button>
                                                 )}
                                                 <button
                                                   onClick={e => { e.stopPropagation(); setConfirmDeleteItemId(item.id); }}
@@ -1322,9 +1323,9 @@ export default function Plan() {
                                             ) : eaten ? (
                                               <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
                                             ) : (
-                                              <button onClick={() => handleMarkEaten(r)} disabled={markingEaten}
+                                              <button onClick={() => handleMarkEaten(r)} disabled={markingEaten.has(r.id)}
                                                 className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors">
-                                                {markingEaten ? "Saving…" : "✓ Already Been"}
+                                                {markingEaten.has(r.id) ? "Saving…" : "✓ Already Been"}
                                               </button>
                                             )}
                                             {r.google_maps_url && (

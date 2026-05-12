@@ -60,6 +60,7 @@ export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoo
     if (!mapRef.current) return;
     import("leaflet").then((L) => {
       const map = mapRef.current;
+      map.invalidateSize();
       markersRef.current.forEach((m: LeafletMarker) => m.remove());
       markersRef.current = [];
 
