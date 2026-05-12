@@ -19,12 +19,14 @@ interface MapItem {
   longitude: number | null;
   restaurant_ids: string[];
   restaurant_name?: string | null;
+  color?: string;
 }
 
 interface Props {
   items: MapItem[];
   onPinClick: (item: MapItem) => void;
   selectedItem: MapItem | null;
+  focusCoords?: { lat: number; lng: number } | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,7 +34,7 @@ type LeafletMap = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LeafletMarker = any;
 
-export default function ItineraryMap({ items, onPinClick, selectedItem }: Props) {
+export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoords }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap>(null);
   const markersRef = useRef<LeafletMarker[]>([]);
@@ -53,6 +55,7 @@ export default function ItineraryMap({ items, onPinClick, selectedItem }: Props)
     };
   }, []);
 
+  // Redraw markers; auto-fit bounds whenever items change (no focusCoords override active)
   useEffect(() => {
     if (!mapRef.current) return;
     import("leaflet").then((L) => {
@@ -65,12 +68,14 @@ export default function ItineraryMap({ items, onPinClick, selectedItem }: Props)
       pinned.forEach(item => {
         const isSelected = selectedItem?.id === item.id;
         const eaten = item.eaten_count > 0;
-        const color = isSelected ? "#7c3aed" : eaten ? "#22c55e" : "#f59e0b";
-        const size = isSelected ? 28 : 22;
+        const baseColor = item.color ?? "#f59e0b";
+        const color = eaten ? "#22c55e" : baseColor;
+        const size = isSelected ? 30 : 22;
+        const border = isSelected ? "3px solid white" : "2px solid white";
 
         const icon = L.divIcon({
           className: "",
-          html: `<div style="width:${size}px;height:${size}px;background:${color};border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>`,
+          html: `<div style="width:${size}px;height:${size}px;background:${color};border:${border};border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35);transition:all 0.2s"></div>`,
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2],
           popupAnchor: [0, -(size / 2 + 4)],
@@ -90,14 +95,21 @@ export default function ItineraryMap({ items, onPinClick, selectedItem }: Props)
         markersRef.current.push(marker);
       });
 
-      if (pinned.length === 1) {
-        map.flyTo([pinned[0].latitude as number, pinned[0].longitude as number], 13, { duration: 0.8 });
-      } else if (pinned.length > 1) {
+      // Only auto-fit when no explicit focusCoords is active
+      if (!focusCoords && pinned.length === 1) {
+        map.flyTo([pinned[0].latitude as number, pinned[0].longitude as number], 12, { duration: 0.8 });
+      } else if (!focusCoords && pinned.length > 1) {
         const bounds = L.latLngBounds(pinned.map((i: MapItem) => [i.latitude as number, i.longitude as number]));
-        map.flyToBounds(bounds, { padding: [40, 40], duration: 0.8 });
+        map.flyToBounds(bounds, { padding: [50, 50], duration: 0.8 });
       }
     });
-  }, [items, selectedItem, onPinClick]);
+  }, [items, selectedItem, onPinClick, focusCoords]);
+
+  // Fly to explicit city/dish focus point
+  useEffect(() => {
+    if (!focusCoords || !mapRef.current) return;
+    mapRef.current.flyTo([focusCoords.lat, focusCoords.lng], 13, { duration: 0.8 });
+  }, [focusCoords]);
 
   return (
     <div style={{ position: "relative", height: "100%", width: "100%" }}>

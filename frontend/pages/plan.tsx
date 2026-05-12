@@ -11,6 +11,17 @@ import Head from "next/head";
 
 const ItineraryMap = dynamic(() => import("../components/ItineraryMap"), { ssr: false });
 
+const DISH_COLORS = [
+  "#7c3aed", "#ea580c", "#0891b2", "#16a34a", "#db2777",
+  "#ca8a04", "#4f46e5", "#dc2626", "#059669", "#7c2d12",
+];
+
+const dishKeyColor = (key: string): string => {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return DISH_COLORS[h % DISH_COLORS.length];
+};
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Itinerary {
@@ -107,6 +118,7 @@ export default function Plan() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [expandedCityKey, setExpandedCityKey] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<ItineraryItem | null>(null);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [foundRestaurants, setFoundRestaurants] = useState<Restaurant[]>([]);
@@ -120,6 +132,7 @@ export default function Plan() {
   const [creatingTrip, setCreatingTrip] = useState(false);
   const [newTripName, setNewTripName] = useState("");
   const [showNewTripInput, setShowNewTripInput] = useState(false);
+  const [focusCoords, setFocusCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -159,8 +172,11 @@ export default function Plan() {
   const loadItems = useCallback(async (itineraryId: string) => {
     setLoadingItems(true);
     setSelectedItem(null);
+    setExpandedCityKey(null);
     setRestaurants([]);
+    setFoundRestaurants([]);
     setRestaurantCache({});
+    setFocusCoords(null);
     try {
       const token = await getToken();
       if (!token) return;
@@ -169,7 +185,8 @@ export default function Plan() {
       });
       if (res.ok) {
         const data = await res.json();
-        setItems(data.items || []);
+        const loaded: ItineraryItem[] = data.items || [];
+        setItems(loaded);
       }
     } finally {
       setLoadingItems(false);
@@ -407,16 +424,27 @@ export default function Plan() {
         targetIds.push(created.id);
         setItineraries(prev => [...prev, { id: created.id, name: created.name, item_count: 0, created_at: new Date().toISOString() }]);
       }
-      const body = tripModal.dish_id
+      const baseBody = tripModal.dish_id
         ? { dish_id: tripModal.dish_id }
         : { dish_name: tripModal.dish_name, city_name: tripModal.city_name, country: tripModal.country };
-      await Promise.all(targetIds.map(id =>
-        fetch(`${API_URL}/api/itineraries/${id}/items`, {
+      const restaurantIds = tripModal.restaurant_ids || [];
+      await Promise.all(targetIds.map(async (id) => {
+        const firstBody = restaurantIds.length > 0
+          ? { ...baseBody, restaurant_id: restaurantIds[0] }
+          : baseBody;
+        await fetch(`${API_URL}/api/itineraries/${id}/items`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        })
-      ));
+          body: JSON.stringify(firstBody),
+        });
+        for (const rid of restaurantIds.slice(1)) {
+          await fetch(`${API_URL}/api/itineraries/${id}/items`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ ...baseBody, restaurant_id: rid }),
+          });
+        }
+      }));
       const names = [
         ...selectedItineraryIds.map(id => itineraries.find(t => t.id === id)?.name ?? id),
         ...(hasNew ? [tripModalNewName.trim()] : []),
@@ -481,12 +509,52 @@ export default function Plan() {
     }
   };
 
-  const openDish = async (item: ItineraryItem) => {
-    setSelectedItem(item);
+  const openCity = async (cityKey: string, cityItems: ItineraryItem[]) => {
+    if (expandedCityKey === cityKey) {
+      setExpandedCityKey(null);
+      setSelectedItem(null);
+      setRestaurants([]);
+      setFoundRestaurants([]);
+      return;
+    }
+    setExpandedCityKey(cityKey);
+    setSelectedItem(null);
     setRestaurants([]);
     setFoundRestaurants([]);
+
+    // Fly immediately using the item lat/lng already from DB
+    const rep = cityItems.find(i => i.latitude != null && i.longitude != null);
+    if (rep) setFocusCoords({ lat: rep.latitude!, lng: rep.longitude! });
+
+    // Load restaurant details into cache in background
+    setLoadingRestaurants(true);
+    try {
+      const token = (await getToken()) ?? "";
+      const newCache: Record<string, Restaurant> = { ...restaurantCache };
+      for (const item of cityItems) {
+        const savedIds = item.restaurant_ids || [];
+        if (!item.dish_id && savedIds.length === 0) continue;
+        const loaded = await fetchRestaurants(token, item.dish_id, savedIds);
+        loaded.forEach(r => { newCache[r.id] = r; });
+      }
+      setRestaurantCache(newCache);
+    } catch { /* silent */ } finally {
+      setLoadingRestaurants(false);
+    }
+  };
+
+  const openDish = async (item: ItineraryItem) => {
+    if (selectedItem?.id === item.id) {
+      // deselect — back to city view
+      setSelectedItem(null);
+      setRestaurants([]);
+      setFoundRestaurants([]);
+      return;
+    }
+    setSelectedItem(item);
+    setFoundRestaurants([]);
     const savedIds = item.restaurant_ids || [];
-    if (!item.dish_id && savedIds.length === 0) return;
+    if (!item.dish_id && savedIds.length === 0) { setRestaurants([]); return; }
     setLoadingRestaurants(true);
     try {
       const token = (await getToken()) ?? "";
@@ -497,6 +565,8 @@ export default function Plan() {
         loaded.forEach(r => { next[r.id] = r; });
         return next;
       });
+      const first = loaded.find(r => r.latitude != null && r.longitude != null);
+      if (first) setFocusCoords({ lat: first.latitude!, lng: first.longitude! });
     } catch { /* silent */ } finally {
       setLoadingRestaurants(false);
     }
@@ -529,6 +599,11 @@ export default function Plan() {
             const t2 = await getToken();
             const saved = await fetchRestaurants(t2 ?? "", item.dish_id, item.restaurant_ids || []);
             setRestaurants(saved);
+            setRestaurantCache(prev => {
+              const next = { ...prev };
+              saved.forEach(r => { next[r.id] = r; });
+              return next;
+            });
             const savedIds = new Set(saved.map(r => r.id));
             setFoundRestaurants(rList.filter(r => !savedIds.has(r.id)).sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0)));
           } else if (job.status === "failed") {
@@ -656,14 +731,65 @@ export default function Plan() {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const groupByCity = (list: ItineraryItem[]) => {
-    const groups: Record<string, { city: string; country: string; items: ItineraryItem[] }> = {};
+    const groups: Record<string, { key: string; city: string; country: string; items: ItineraryItem[] }> = {};
     list.forEach(item => {
       const key = `${item.city_name}|${item.country}`;
-      if (!groups[key]) groups[key] = { city: item.city_name, country: item.country, items: [] };
+      if (!groups[key]) groups[key] = { key, city: item.city_name, country: item.country, items: [] };
       groups[key].items.push(item);
     });
     return Object.values(groups);
   };
+
+  const getDishColorForItem = (item: ItineraryItem) =>
+    dishKeyColor(item.dish_id ?? `cat:${item.dish_name}:${item.city_name}`);
+
+  // Three-level map hierarchy:
+  //   no city open  → one pin per city (using item's DB lat/lng, city color = first dish color)
+  //   city open     → all restaurant pins for all dishes in that city (each dish color)
+  //   dish selected → only that dish's restaurant pins
+  const mapDisplayItems = (() => {
+    const cityGroups = groupByCity(items);
+    const expandedGroup = cityGroups.find(g => g.key === expandedCityKey);
+
+    if (!expandedGroup) {
+      // Level 1: one representative pin per city
+      return cityGroups.flatMap(group => {
+        const rep = group.items.find(i => i.latitude != null && i.longitude != null);
+        if (!rep) return [];
+        return [{
+          ...rep,
+          restaurant_name: null as string | null,
+          color: getDishColorForItem(group.items[0]),
+        }];
+      });
+    }
+
+    const sourceItems = selectedItem
+      ? expandedGroup.items.filter(i => i.id === selectedItem.id)
+      : expandedGroup.items;
+
+    // Level 2 / 3: restaurant pins from cache
+    return sourceItems.flatMap(item => {
+      const color = getDishColorForItem(item);
+      const savedIds = item.restaurant_ids || [];
+      const cached = savedIds.map(id => restaurantCache[id]).filter(Boolean);
+      const pinnable = cached.filter(r => r.latitude != null && r.longitude != null);
+      if (pinnable.length > 0) {
+        return pinnable.map(r => ({
+          ...item,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          restaurant_name: r.name,
+          color,
+        }));
+      }
+      // fallback: use item's own DB lat/lng if no cached restaurant yet
+      if (item.latitude != null && item.longitude != null) {
+        return [{ ...item, restaurant_name: null as string | null, color }];
+      }
+      return [];
+    });
+  })();
 
   const eatenDishIds = new Set(passportEntries.map(e => e.dish_id));
   const isRestaurantEaten = (restaurantId: string) => passportEntries.some(e => e.restaurant_id === restaurantId);
@@ -1024,106 +1150,128 @@ export default function Plan() {
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Map */}
-                        <div className="lg:col-span-2 space-y-6">
-                          <div className="bg-white rounded-xl shadow overflow-hidden" style={{ height: 320 }}>
+
+                        {/* Left: map + city accordion */}
+                        <div className="lg:col-span-2 space-y-4">
+
+                          {/* Map — always visible */}
+                          <div className="bg-white rounded-xl shadow overflow-hidden" style={{ height: 340 }}>
                             <ItineraryMap
-                              items={items.flatMap(item => {
-                                const savedIds = item.restaurant_ids || [];
-                                const cached = savedIds.map(id => restaurantCache[id]).filter(Boolean);
-                                const pinnable = cached.filter(r => r.latitude != null && r.longitude != null);
-                                if (pinnable.length > 0) {
-                                  return pinnable.map(r => ({
-                                    ...item,
-                                    latitude: r.latitude,
-                                    longitude: r.longitude,
-                                    restaurant_name: r.name,
-                                  }));
-                                }
-                                return [{ ...item, restaurant_name: null as string | null }];
-                              })}
-                              onPinClick={openDish}
+                              items={mapDisplayItems}
+                              onPinClick={item => {
+                                const sourceItem = items.find(i => i.id === item.id);
+                                if (sourceItem) openDish(sourceItem);
+                              }}
                               selectedItem={selectedItem}
+                              focusCoords={focusCoords}
                             />
                           </div>
 
-                          {/* Dish list */}
-                          <div className="space-y-6">
-                            {groupByCity(items).map(group => (
-                              <div key={`${group.city}|${group.country}`}>
-                                <h2 className="text-lg font-bold text-dark mb-3 flex items-center gap-2">
-                                  📍 {group.city}, {group.country}
-                                  <span className="text-sm font-normal text-gray-400">
-                                    {group.items.length} dish{group.items.length !== 1 ? "es" : ""}
-                                  </span>
-                                </h2>
-                                <div className="space-y-2">
-                                  {group.items.map(item => {
-                                    const eaten = eatenDishIds.has(item.dish_id ?? "");
-                                    const isSelected = selectedItem?.id === item.id;
-                                    return (
-                                      <div
-                                        key={item.id}
-                                        onClick={() => openDish(item)}
-                                        className={`bg-white rounded-xl shadow-sm border cursor-pointer transition-all hover:shadow-md flex overflow-hidden ${
-                                          isSelected ? "ring-2 ring-primary" : "border-gray-100"
-                                        }`}
-                                      >
-                                        <div className={`w-1.5 flex-shrink-0 ${eaten ? "bg-green-400" : "bg-amber-300"}`} />
-                                        <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                              <span className="font-semibold text-dark text-sm">{item.dish_name}</span>
-                                              {item.cuisine_type && (
-                                                <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">{item.cuisine_type}</span>
-                                              )}
-                                              {eaten && (
-                                                <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">
-                                                  ✓ Tried {item.eaten_count}×
-                                                </span>
-                                              )}
+                          {/* City accordion */}
+                          <div className="space-y-3">
+                            {groupByCity(items).map(group => {
+                              const isExpanded = expandedCityKey === group.key;
+                              return (
+                                <div key={group.key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                  {/* City header */}
+                                  <button
+                                    onClick={() => openCity(group.key, group.items)}
+                                    className={`w-full flex items-center gap-3 px-5 py-4 text-left transition-colors ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50"}`}
+                                  >
+                                    <span className="text-base font-bold text-dark">📍 {group.city}, {group.country}</span>
+                                    <span className="text-xs text-gray-400 font-normal">
+                                      {group.items.length} dish{group.items.length !== 1 ? "es" : ""}
+                                    </span>
+                                    {/* dish color dots */}
+                                    <div className="flex gap-1 ml-1">
+                                      {group.items.map(i => (
+                                        <span
+                                          key={i.id}
+                                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                          style={{ background: getDishColorForItem(i) }}
+                                        />
+                                      ))}
+                                    </div>
+                                    <span className="ml-auto flex items-center gap-2">
+                                      {loadingRestaurants && isExpanded && (
+                                        <span className="text-xs text-gray-400 animate-pulse">Loading…</span>
+                                      )}
+                                      <span className="text-gray-400 text-xs transition-transform" style={{ transform: isExpanded ? "rotate(180deg)" : "none" }}>▼</span>
+                                    </span>
+                                  </button>
+
+                                  {/* Dish list — only when expanded */}
+                                  {isExpanded && (
+                                    <div className="border-t border-gray-100 divide-y divide-gray-50">
+                                      {group.items.map(item => {
+                                        const eaten = eatenDishIds.has(item.dish_id ?? "");
+                                        const isSelected = selectedItem?.id === item.id;
+                                        const color = getDishColorForItem(item);
+                                        return (
+                                          <div
+                                            key={item.id}
+                                            onClick={() => openDish(item)}
+                                            className={`flex cursor-pointer transition-all hover:bg-gray-50 overflow-hidden ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
+                                          >
+                                            <div className="w-1 flex-shrink-0" style={{ background: eaten ? "#22c55e" : color }} />
+                                            <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                  <span className="font-semibold text-dark text-sm">{item.dish_name}</span>
+                                                  {item.cuisine_type && (
+                                                    <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">{item.cuisine_type}</span>
+                                                  )}
+                                                  {eaten && (
+                                                    <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">✓ Tried {item.eaten_count}×</span>
+                                                  )}
+                                                </div>
+                                                {item.dish_description && (
+                                                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{item.dish_description}</p>
+                                                )}
+                                                {item.notes && (
+                                                  <p className="text-xs text-amber-700 mt-0.5 italic">📝 {item.notes}</p>
+                                                )}
+                                                {/* mini restaurant count */}
+                                                {(item.restaurant_ids || []).length > 0 && (
+                                                  <p className="text-xs text-gray-400 mt-0.5">{item.restaurant_ids.length} restaurant{item.restaurant_ids.length !== 1 ? "s" : ""} saved</p>
+                                                )}
+                                              </div>
+                                              <div className="flex-shrink-0 flex flex-col gap-1 items-end">
+                                                {item.dish_id && !eaten && (
+                                                  <button
+                                                    onClick={e => { e.stopPropagation(); handleMarkDishEaten(item); }}
+                                                    disabled={markingEaten}
+                                                    className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
+                                                  >✓ Eaten</button>
+                                                )}
+                                                <button
+                                                  onClick={e => { e.stopPropagation(); setConfirmDeleteItemId(item.id); }}
+                                                  className="text-xs text-gray-300 hover:text-red-400 transition-colors px-1"
+                                                  title="Remove from trip"
+                                                >✕</button>
+                                              </div>
                                             </div>
-                                            {item.dish_description && (
-                                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{item.dish_description}</p>
-                                            )}
-                                            {item.notes && (
-                                              <p className="text-xs text-amber-700 mt-0.5 italic">📝 {item.notes}</p>
-                                            )}
                                           </div>
-                                          <div className="flex-shrink-0 flex flex-col gap-1 items-end">
-                                            {item.dish_id && !eaten && (
-                                              <button
-                                                onClick={e => { e.stopPropagation(); handleMarkDishEaten(item); }}
-                                                disabled={markingEaten}
-                                                className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
-                                              >
-                                                ✓ Eaten
-                                              </button>
-                                            )}
-                                            <button
-                                              onClick={e => { e.stopPropagation(); setConfirmDeleteItemId(item.id); }}
-                                              className="text-xs text-gray-300 hover:text-red-400 transition-colors px-1"
-                                              title="Remove from trip"
-                                            >✕</button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
+                                        );
+                                      })}
+                                    </div>
+                                  )}
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
 
-                        {/* Dish detail panel */}
+                        {/* Right: dish detail panel */}
                         <div className="lg:col-span-1">
                           {selectedItem ? (
                             <div className="bg-white rounded-xl shadow p-5 sticky top-6">
+                              {/* color accent strip */}
+                              <div className="h-1 rounded-full mb-4" style={{ background: getDishColorForItem(selectedItem) }} />
                               <div className="mb-4 pb-4 border-b border-gray-100">
                                 <div className="flex items-start justify-between gap-2 mb-1">
                                   <h3 className="font-bold text-dark text-lg leading-snug">{selectedItem.dish_name}</h3>
-                                  <button onClick={() => setSelectedItem(null)} className="text-gray-300 hover:text-gray-500 flex-shrink-0">✕</button>
+                                  <button onClick={() => { setSelectedItem(null); setRestaurants([]); setFoundRestaurants([]); }} className="text-gray-300 hover:text-gray-500 flex-shrink-0">✕</button>
                                 </div>
                                 <p className="text-xs text-gray-400 mb-2">📍 {selectedItem.city_name}, {selectedItem.country}</p>
                                 {selectedItem.dish_description && (
@@ -1227,10 +1375,15 @@ export default function Plan() {
                                 )}
                               </div>
                             </div>
+                          ) : expandedCityKey ? (
+                            <div className="bg-white rounded-xl shadow p-8 text-center text-gray-400">
+                              <div className="text-4xl mb-3">🍽️</div>
+                              <p className="text-sm">Click a dish to see restaurants</p>
+                            </div>
                           ) : (
                             <div className="bg-white rounded-xl shadow p-8 text-center text-gray-400">
-                              <div className="text-4xl mb-3">👆</div>
-                              <p className="text-sm">Click a dish to see restaurants and mark what you&apos;ve tried</p>
+                              <div className="text-4xl mb-3">📍</div>
+                              <p className="text-sm">Click a city to expand it and see dishes</p>
                             </div>
                           )}
                         </div>
