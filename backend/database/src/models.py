@@ -190,7 +190,6 @@ class PassportEntries(BaseModel):
             ])
 
     def create_entry(self, clerk_user_id: str, entry: PassportEntryCreate) -> str:
-        import json
         data = {k: v for k, v in {
             'clerk_user_id': clerk_user_id,
             'dish_id': entry.dish_id,
@@ -199,7 +198,7 @@ class PassportEntries(BaseModel):
             'rating': entry.rating,
             'notes': entry.notes,
         }.items() if v is not None}
-        data['itinerary_ids'] = json.dumps([str(i) for i in entry.itinerary_ids]) if entry.itinerary_ids else '[]'
+        data['itinerary_ids'] = [str(i) for i in entry.itinerary_ids]
         try:
             return self.db.insert('passport_entries', data, returning='id')
         except Exception as e:
@@ -212,13 +211,12 @@ class PassportEntries(BaseModel):
             raise
 
     def append_itinerary_ids(self, entry_id: str, itinerary_ids: list) -> None:
-        """Append itinerary UUIDs to an existing passport entry, skipping duplicates."""
         for iid in itinerary_ids:
             sql = """
                 UPDATE passport_entries
-                SET itinerary_ids = itinerary_ids || ARRAY[:iid::uuid]
+                SET itinerary_ids = itinerary_ids || jsonb_build_array(:iid)
                 WHERE id = :id::uuid
-                  AND NOT (itinerary_ids @> ARRAY[:iid::uuid])
+                  AND NOT (itinerary_ids @> jsonb_build_array(:iid))
             """
             self.db.execute(sql, [
                 {'name': 'iid', 'value': {'stringValue': str(iid)}},
@@ -261,8 +259,8 @@ class Itineraries(BaseModel):
         """
         return self.db.query(sql, [{'name': 'uid', 'value': {'stringValue': clerk_user_id}}])
 
-    def create_itinerary(self, clerk_user_id: str, name: str, list_type: str = 'trip') -> str:
-        return self.db.insert('itineraries', {'clerk_user_id': clerk_user_id, 'name': name, 'list_type': list_type}, returning='id')
+    def create_itinerary(self, clerk_user_id: str, name: str) -> str:
+        return self.db.insert('itineraries', {'clerk_user_id': clerk_user_id, 'name': name}, returning='id')
 
     def delete_itinerary(self, itinerary_id: str) -> int:
         return self.db.delete('itineraries', "id = :id::uuid", {'id': itinerary_id})

@@ -24,18 +24,9 @@ const dishKeyColor = (key: string): string => {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ListType = "trip" | "wishlist" | "visited";
-
-const LIST_TYPE_META: Record<ListType, { icon: string; label: string; emptyHint: string }> = {
-  trip:     { icon: "✈️",  label: "Trip",     emptyHint: "Add dishes from Explore to plan your trip." },
-  wishlist: { icon: "⭐",  label: "Wishlist", emptyHint: "Save dishes from Explore to try someday." },
-  visited:  { icon: "📖", label: "Visited",  emptyHint: "Log dishes you've already eaten." },
-};
-
 interface Itinerary {
   id: string;
   name: string;
-  list_type: ListType;
   item_count: number;
   created_at: string;
 }
@@ -93,9 +84,6 @@ export default function Plan() {
   const [loading, setLoading] = useState(true);
   const [eatenDateModal, setEatenDateModal] = useState<{ label: string; onConfirm: (date: string) => void } | null>(null);
   const [eatenDate, setEatenDate] = useState("");
-
-  // ── New list creation state ───────────────────────────────────────────────
-  const [newListType, setNewListType] = useState<ListType>("trip");
 
   // ── Lists state ───────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -216,11 +204,11 @@ export default function Plan() {
       const res = await fetch(`${API_URL}/api/itineraries`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name, list_type: newListType }),
+        body: JSON.stringify({ name }),
       });
       if (!res.ok) throw new Error(await res.text());
       const created = await res.json();
-      const newList: Itinerary = { id: created.id, name: created.name, list_type: created.list_type ?? newListType, item_count: 0, created_at: new Date().toISOString() };
+      const newList: Itinerary = { id: created.id, name: created.name, item_count: 0, created_at: new Date().toISOString() };
       setItineraries(prev => [...prev, newList]);
       setNewTripName("");
       setShowNewTripInput(false);
@@ -579,69 +567,47 @@ export default function Plan() {
             <>
               {/* ── LIST SELECTOR ────────────────────────────────────────── */}
               <div className="flex items-center gap-2 mb-6 flex-wrap">
-                {itineraries.map(list => {
-                  const meta = LIST_TYPE_META[list.list_type] ?? LIST_TYPE_META.trip;
-                  return (
-                    <div key={list.id} className="flex items-center gap-1">
-                      <button
-                        onClick={() => switchTrip(list.id)}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                          activeId === list.id
-                            ? "bg-primary text-white shadow-sm"
-                            : "bg-white text-gray-600 border border-gray-200 hover:border-primary hover:text-primary"
-                        }`}
-                      >
-                        {meta.icon} {list.name}
-                        <span className={`ml-1.5 text-xs ${activeId === list.id ? "opacity-70" : "text-gray-400"}`}>
-                          ({list.item_count})
-                        </span>
-                      </button>
-                      <button
-                        onClick={() => setConfirmDeleteTripId(list.id)}
-                        className="text-red-400 hover:text-red-600 text-xs px-1 transition-colors"
-                        title="Delete list"
-                      >✕</button>
-                    </div>
-                  );
-                })}
+                {itineraries.map(list => (
+                  <div key={list.id} className="flex items-center gap-1">
+                    <button
+                      onClick={() => switchTrip(list.id)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        activeId === list.id
+                          ? "bg-primary text-white shadow-sm"
+                          : "bg-white text-gray-600 border border-gray-200 hover:border-primary hover:text-primary"
+                      }`}
+                    >
+                      {list.name}
+                      <span className={`ml-1.5 text-xs ${activeId === list.id ? "opacity-70" : "text-gray-400"}`}>
+                        ({list.item_count})
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteTripId(list.id)}
+                      className="text-red-400 hover:text-red-600 text-xs px-1 transition-colors"
+                      title="Delete list"
+                    >✕</button>
+                  </div>
+                ))}
                 {showNewTripInput ? (
-                  <div className="flex flex-col gap-2 bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-                    {/* Type picker */}
-                    <div className="flex gap-1">
-                      {(Object.entries(LIST_TYPE_META) as [ListType, typeof LIST_TYPE_META[ListType]][]).map(([type, meta]) => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setNewListType(type)}
-                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                            newListType === type
-                              ? "border-primary bg-purple-50 text-primary"
-                              : "border-gray-200 text-gray-500 hover:border-purple-200"
-                          }`}
-                        >
-                          {meta.icon} {meta.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={newTripName}
-                        onChange={e => setNewTripName(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") handleCreateList(); if (e.key === "Escape") { setShowNewTripInput(false); setNewTripName(""); } }}
-                        placeholder={`${LIST_TYPE_META[newListType].label} name…`}
-                        autoFocus
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary w-40"
-                      />
-                      <button onClick={handleCreateList} disabled={creatingTrip}
-                        className="px-3 py-2 bg-primary text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-gray-300 transition-colors">
-                        {creatingTrip ? "…" : "Create"}
-                      </button>
-                      <button onClick={() => { setShowNewTripInput(false); setNewTripName(""); }}
-                        className="px-3 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm hover:border-gray-400">
-                        Cancel
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
+                    <input
+                      type="text"
+                      value={newTripName}
+                      onChange={e => setNewTripName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") handleCreateList(); if (e.key === "Escape") { setShowNewTripInput(false); setNewTripName(""); } }}
+                      placeholder="Plan name…"
+                      autoFocus
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary w-40"
+                    />
+                    <button onClick={handleCreateList} disabled={creatingTrip}
+                      className="px-3 py-2 bg-primary text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-gray-300 transition-colors">
+                      {creatingTrip ? "…" : "Create"}
+                    </button>
+                    <button onClick={() => { setShowNewTripInput(false); setNewTripName(""); }}
+                      className="px-3 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm hover:border-gray-400">
+                      Cancel
+                    </button>
                   </div>
                 ) : (
                   <button

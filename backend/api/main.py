@@ -469,9 +469,9 @@ async def list_itineraries(clerk_user_id: str = Depends(get_current_user_id)):
 @app.post("/api/itineraries")
 async def create_itinerary(body: ItineraryCreate, clerk_user_id: str = Depends(get_current_user_id)):
     try:
-        itinerary_id = db.itineraries.create_itinerary(clerk_user_id, body.name.strip(), body.list_type)
+        itinerary_id = db.itineraries.create_itinerary(clerk_user_id, body.name.strip())
         logger.info(f"Created itinerary id={itinerary_id} user={clerk_user_id}")
-        return {"id": str(itinerary_id), "name": body.name.strip(), "list_type": body.list_type}
+        return {"id": str(itinerary_id), "name": body.name.strip()}
     except Exception as e:
         logger.error(f"Error creating itinerary: {e}")
         raise HTTPException(status_code=500, detail=str(e))

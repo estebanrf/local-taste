@@ -105,12 +105,9 @@ class UserUpdate(BaseModel):
 
 # ── Itinerary ─────────────────────────────────────────────────────────────────
 
-ListType = Literal["trip", "wishlist", "visited"]
-
 
 class ItineraryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    list_type: ListType = "trip"
 
 
 class ItineraryItemCreate(BaseModel):

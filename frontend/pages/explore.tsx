@@ -108,8 +108,7 @@ export default function Explore() {
   const [saveNotes, setSaveNotes] = useState("");
   const [selectedItineraryId, setSelectedItineraryId] = useState<string>("");
   const [newListName, setNewListName] = useState("");
-  const [newListType, setNewListType] = useState<"trip" | "wishlist" | "visited">("wishlist");
-  const [itineraries, setItineraries] = useState<{id: string; name: string; list_type: string}[]>([]);
+  const [itineraries, setItineraries] = useState<{id: string; name: string}[]>([]);
   const [saving, setSaving] = useState(false);
 
   // Load user prefs + itinerary dish IDs + itineraries once auth ready
@@ -319,7 +318,6 @@ export default function Explore() {
     setSaveNotes("");
     setSelectedItineraryId(itineraries[0]?.id ?? "");
     setNewListName("");
-    setNewListType("wishlist");
     setSaveModal({ dishId: dish?.id ?? null, dishName, cityName: cName, country: cCountry, restaurantId });
   };
 
@@ -337,16 +335,16 @@ export default function Explore() {
       let itineraryId = selectedItineraryId;
 
       if (!itineraryId) {
-        const name = newListName.trim() || (newListType === "wishlist" ? "Wishlist" : newListType === "visited" ? "Visited" : "My Trip");
+        const name = newListName.trim() || "My List";
         const createRes = await fetch(`${API_URL}/api/itineraries`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ name, list_type: newListType }),
+          body: JSON.stringify({ name }),
         });
         if (!createRes.ok) throw new Error(await createRes.text());
         const created = await createRes.json();
         itineraryId = created.id;
-        setItineraries(prev => [...prev, { id: created.id, name: created.name, list_type: created.list_type }]);
+        setItineraries(prev => [...prev, { id: created.id, name: created.name }]);
       }
 
       const res = await fetch(`${API_URL}/api/itineraries/${itineraryId}/items`, {
@@ -863,25 +861,21 @@ export default function Explore() {
               <div className="mb-4">
                 {itineraries.length > 0 ? (
                   <div className="space-y-1.5 mb-3">
-                    {itineraries.map(t => {
-                      const icons: Record<string, string> = { trip: "✈️", wishlist: "⭐", visited: "📖" };
-                      const icon = icons[t.list_type] ?? "📋";
-                      return (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setSelectedItineraryId(t.id)}
-                          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                            selectedItineraryId === t.id
-                              ? "border-primary bg-purple-50 text-primary font-semibold"
-                              : "border-gray-200 text-gray-700 hover:border-purple-200"
-                          }`}
-                        >
-                          <span>{icon}</span> {t.name}
-                          {selectedItineraryId === t.id && <span className="ml-auto text-xs">✓</span>}
-                        </button>
-                      );
-                    })}
+                    {itineraries.map(t => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSelectedItineraryId(t.id)}
+                        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                          selectedItineraryId === t.id
+                            ? "border-primary bg-purple-50 text-primary font-semibold"
+                            : "border-gray-200 text-gray-700 hover:border-purple-200"
+                        }`}
+                      >
+                        📋 {t.name}
+                        {selectedItineraryId === t.id && <span className="ml-auto text-xs">✓</span>}
+                      </button>
+                    ))}
                     <button
                       type="button"
                       onClick={() => setSelectedItineraryId("")}
@@ -897,31 +891,13 @@ export default function Explore() {
                   </div>
                 ) : null}
                 {(selectedItineraryId === "" || itineraries.length === 0) && (
-                  <div className="space-y-2">
-                    <div className="flex gap-1">
-                      {([["wishlist","⭐","Wishlist"],["trip","✈️","Trip"],["visited","📖","Visited"]] as const).map(([type, icon, label]) => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setNewListType(type)}
-                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                            newListType === type
-                              ? "border-primary bg-purple-50 text-primary"
-                              : "border-gray-200 text-gray-500 hover:border-purple-200"
-                          }`}
-                        >
-                          {icon} {label}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      value={newListName}
-                      onChange={e => setNewListName(e.target.value)}
-                      placeholder={newListType === "wishlist" ? "e.g. Japan wishlist" : newListType === "visited" ? "e.g. Barcelona 2024" : "e.g. Tokyo 2026"}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    value={newListName}
+                    onChange={e => setNewListName(e.target.value)}
+                    placeholder="e.g. Tokyo 2026, Japan wishlist…"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
                 )}
               </div>
 
