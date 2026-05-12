@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 
 interface MapItem {
@@ -19,6 +19,7 @@ interface MapItem {
   longitude: number | null;
   restaurant_ids: string[];
   restaurant_name?: string | null;
+  restaurant_id?: string | null;
   color?: string;
 }
 
@@ -27,6 +28,7 @@ interface Props {
   onPinClick: (item: MapItem) => void;
   selectedItem: MapItem | null;
   focusCoords?: { lat: number; lng: number } | null;
+  highlightedRestaurantId?: string | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,10 +36,11 @@ type LeafletMap = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LeafletMarker = any;
 
-export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoords }: Props) {
+export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoords, highlightedRestaurantId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap>(null);
   const markersRef = useRef<LeafletMarker[]>([]);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -48,6 +51,7 @@ export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoo
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map);
       mapRef.current = map;
+      setMapReady(true);
     });
     return () => {
       mapRef.current?.remove();
@@ -57,7 +61,7 @@ export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoo
 
   // Redraw markers; auto-fit bounds whenever items change (no focusCoords override active)
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || !mapReady) return;
     import("leaflet").then((L) => {
       const map = mapRef.current;
       map.invalidateSize();
@@ -68,15 +72,17 @@ export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoo
 
       pinned.forEach(item => {
         const isSelected = selectedItem?.id === item.id;
+        const isHighlighted = !!highlightedRestaurantId && item.restaurant_id === highlightedRestaurantId;
         const eaten = item.eaten_count > 0;
         const baseColor = item.color ?? "#f59e0b";
         const color = eaten ? "#22c55e" : baseColor;
-        const size = isSelected ? 30 : 22;
-        const border = isSelected ? "3px solid white" : "2px solid white";
+        const size = isSelected || isHighlighted ? 32 : 22;
+        const border = isHighlighted ? "3px solid #7c3aed" : isSelected ? "3px solid white" : "2px solid white";
+        const shadow = isHighlighted ? "0 0 0 3px rgba(124,58,237,0.35), 0 2px 8px rgba(0,0,0,0.4)" : "0 2px 6px rgba(0,0,0,0.35)";
 
         const icon = L.divIcon({
           className: "",
-          html: `<div style="width:${size}px;height:${size}px;background:${color};border:${border};border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35);transition:all 0.2s"></div>`,
+          html: `<div style="width:${size}px;height:${size}px;background:${color};border:${border};border-radius:50%;box-shadow:${shadow};transition:all 0.2s"></div>`,
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2],
           popupAnchor: [0, -(size / 2 + 4)],
@@ -104,7 +110,7 @@ export default function ItineraryMap({ items, onPinClick, selectedItem, focusCoo
         map.flyToBounds(bounds, { padding: [50, 50], duration: 0.8 });
       }
     });
-  }, [items, selectedItem, onPinClick, focusCoords]);
+  }, [items, selectedItem, onPinClick, focusCoords, highlightedRestaurantId, mapReady]);
 
   // Fly to explicit city/dish focus point
   useEffect(() => {

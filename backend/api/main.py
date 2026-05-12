@@ -402,20 +402,13 @@ async def add_passport_entry(entry: PassportEntryCreate, clerk_user_id: str = De
         if not dish:
             raise HTTPException(status_code=404, detail="Dish not found")
 
-        # Check for existing entry (upsert semantics)
-        existing = db.passport.find_by_user_and_dish(clerk_user_id, entry.dish_id)
+        # Check if this exact dish+restaurant combo already logged
+        existing = db.passport.find_by_user_dish_and_restaurant(clerk_user_id, entry.dish_id, entry.restaurant_id)
         if existing:
-            update = PassportEntryUpdate(
-                restaurant_id=entry.restaurant_id,
-                tasted_at=entry.tasted_at,
-                rating=entry.rating,
-                notes=entry.notes,
-            )
-            db.passport.update_entry(existing['id'], update)
-            return db.passport.find_by_user_and_dish(clerk_user_id, entry.dish_id)
+            return {"id": existing['id'], "already_exists": True}
 
         entry_id = db.passport.create_entry(clerk_user_id, entry)
-        return db.passport.find_by_user_and_dish(clerk_user_id, entry.dish_id)
+        return {"id": str(entry_id), "ok": True}
     except HTTPException:
         raise
     except Exception as e:

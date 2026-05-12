@@ -113,6 +113,8 @@ export default function Plan() {
   const [tripModalNewName, setTripModalNewName] = useState("");
   const [addingToTrip, setAddingToTrip] = useState(false);
   const [markingWishlistEaten, setMarkingWishlistEaten] = useState<Set<string>>(new Set());
+  const [eatenDateModal, setEatenDateModal] = useState<{ label: string; onConfirm: (date: string) => void } | null>(null);
+  const [eatenDate, setEatenDate] = useState("");
 
   // ── Trips state ───────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -125,6 +127,7 @@ export default function Plan() {
   const [restaurantCache, setRestaurantCache] = useState<Record<string, Restaurant>>({});
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
   const [markingEaten, setMarkingEaten] = useState<Set<string>>(new Set());
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState<string | null>(null);
   const [rankingRestaurants, setRankingRestaurants] = useState(false);
   const [rankingStatus, setRankingStatus] = useState("");
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
@@ -359,50 +362,50 @@ export default function Plan() {
     }
   };
 
-  const handleMarkWishlistDishEaten = async (item: WishlistItem) => {
+  const handleMarkWishlistDishEaten = (item: WishlistItem) => {
     if (!item.dish_id || markingWishlistEaten.has(item.dish_id)) return;
-    setMarkingWishlistEaten(prev => new Set(prev).add(item.dish_id!));
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/passport`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: item.dish_id }),
-      });
-      if (res.ok) {
-        showToast("success", `"${item.dish_name}" added to your passport!`);
-        await loadPassport();
-      } else {
-        showToast("error", "Failed to mark as eaten.");
-      }
-    } catch {
-      showToast("error", "Failed to mark as eaten.");
-    } finally {
-      setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; });
-    }
+    setEatenDate(new Date().toISOString().slice(0, 10));
+    setEatenDateModal({
+      label: `When did you try "${item.dish_name}"?`,
+      onConfirm: async (tastedAt: string) => {
+        setEatenDateModal(null);
+        setMarkingWishlistEaten(prev => new Set(prev).add(item.dish_id!));
+        try {
+          const token = await getToken();
+          const res = await fetch(`${API_URL}/api/passport`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ dish_id: item.dish_id, tasted_at: tastedAt }),
+          });
+          if (res.ok) { showToast("success", `"${item.dish_name}" added to your passport!`); await loadPassport(); }
+          else showToast("error", "Failed to mark as eaten.");
+        } catch { showToast("error", "Failed to mark as eaten."); }
+        finally { setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; }); }
+      },
+    });
   };
 
-  const handleMarkWishlistRestaurantEaten = async (restaurant: Restaurant) => {
+  const handleMarkWishlistRestaurantEaten = (restaurant: Restaurant) => {
     if (!selectedWishlistItem?.dish_id || markingWishlistEaten.has(restaurant.id)) return;
-    setMarkingWishlistEaten(prev => new Set(prev).add(restaurant.id));
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/passport`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: selectedWishlistItem.dish_id, restaurant_id: restaurant.id }),
-      });
-      if (res.ok) {
-        showToast("success", `"${selectedWishlistItem.dish_name}" at ${restaurant.name} added to your passport!`);
-        await loadPassport();
-      } else {
-        showToast("error", "Failed to mark as eaten.");
-      }
-    } catch {
-      showToast("error", "Failed to mark as eaten.");
-    } finally {
-      setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; });
-    }
+    setEatenDate(new Date().toISOString().slice(0, 10));
+    setEatenDateModal({
+      label: `When did you visit ${restaurant.name}?`,
+      onConfirm: async (tastedAt: string) => {
+        setEatenDateModal(null);
+        setMarkingWishlistEaten(prev => new Set(prev).add(restaurant.id));
+        try {
+          const token = await getToken();
+          const res = await fetch(`${API_URL}/api/passport`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ dish_id: selectedWishlistItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt }),
+          });
+          if (res.ok) { showToast("success", `"${selectedWishlistItem.dish_name}" at ${restaurant.name} added to your passport!`); await loadPassport(); }
+          else showToast("error", "Failed to mark as eaten.");
+        } catch { showToast("error", "Failed to mark as eaten."); }
+        finally { setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; }); }
+      },
+    });
   };
 
   const handleAddToTrip = async () => {
@@ -516,6 +519,7 @@ export default function Plan() {
       setRestaurants([]);
       setFoundRestaurants([]);
       setFocusCoords(null);
+      setSelectedRestaurantId(null);
       return;
     }
     setExpandedCityKey(cityKey);
@@ -550,10 +554,12 @@ export default function Plan() {
       setSelectedItem(null);
       setRestaurants([]);
       setFoundRestaurants([]);
+      setSelectedRestaurantId(null);
       return;
     }
     setSelectedItem(item);
     setFoundRestaurants([]);
+    setSelectedRestaurantId(null);
     const savedIds = item.restaurant_ids || [];
     if (!item.dish_id && savedIds.length === 0) { setRestaurants([]); return; }
     setLoadingRestaurants(true);
@@ -681,52 +687,56 @@ export default function Plan() {
     }
   };
 
-  const handleMarkDishEaten = async (item: ItineraryItem) => {
+  const handleMarkDishEaten = (item: ItineraryItem) => {
     if (!item.dish_id || markingEaten.has(item.dish_id)) return;
-    setMarkingEaten(prev => new Set(prev).add(item.dish_id!));
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/passport`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: item.dish_id }),
-      });
-      if (res.ok) {
-        showToast("success", `"${item.dish_name}" added to your passport!`);
-        await loadPassport();
-        setItems(prev => prev.map(i => i.id === item.id ? { ...i, eaten_count: (i.eaten_count || 0) + 1 } : i));
-      } else {
-        showToast("error", "Failed to mark as eaten.");
-      }
-    } catch {
-      showToast("error", "Failed to mark as eaten.");
-    } finally {
-      setMarkingEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; });
-    }
+    setEatenDate(new Date().toISOString().slice(0, 10));
+    setEatenDateModal({
+      label: `When did you try "${item.dish_name}"?`,
+      onConfirm: async (tastedAt: string) => {
+        setEatenDateModal(null);
+        setMarkingEaten(prev => new Set(prev).add(item.dish_id!));
+        try {
+          const token = await getToken();
+          const res = await fetch(`${API_URL}/api/passport`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ dish_id: item.dish_id, tasted_at: tastedAt }),
+          });
+          if (res.ok) {
+            showToast("success", `"${item.dish_name}" added to your passport!`);
+            await loadPassport();
+            setItems(prev => prev.map(i => i.id === item.id ? { ...i, eaten_count: (i.eaten_count || 0) + 1 } : i));
+          } else showToast("error", "Failed to mark as eaten.");
+        } catch { showToast("error", "Failed to mark as eaten."); }
+        finally { setMarkingEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; }); }
+      },
+    });
   };
 
-  const handleMarkEaten = async (restaurant: Restaurant) => {
+  const handleMarkEaten = (restaurant: Restaurant) => {
     if (!selectedItem?.dish_id || markingEaten.has(restaurant.id)) return;
-    setMarkingEaten(prev => new Set(prev).add(restaurant.id));
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/passport`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ dish_id: selectedItem.dish_id, restaurant_id: restaurant.id }),
-      });
-      if (res.ok) {
-        showToast("success", `"${selectedItem.dish_name}" at ${restaurant.name} added to your passport!`);
-        await loadPassport();
-        setSelectedItem(prev => prev ? { ...prev, eaten_count: (prev.eaten_count || 0) + 1 } : prev);
-      } else {
-        showToast("error", "Failed to mark as eaten.");
-      }
-    } catch {
-      showToast("error", "Failed to mark as eaten.");
-    } finally {
-      setMarkingEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; });
-    }
+    setEatenDate(new Date().toISOString().slice(0, 10));
+    setEatenDateModal({
+      label: `When did you visit ${restaurant.name}?`,
+      onConfirm: async (tastedAt: string) => {
+        setEatenDateModal(null);
+        setMarkingEaten(prev => new Set(prev).add(restaurant.id));
+        try {
+          const token = await getToken();
+          const res = await fetch(`${API_URL}/api/passport`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ dish_id: selectedItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt }),
+          });
+          if (res.ok) {
+            showToast("success", `"${selectedItem.dish_name}" at ${restaurant.name} added to your passport!`);
+            await loadPassport();
+            setSelectedItem(prev => prev ? { ...prev, eaten_count: (prev.eaten_count || 0) + 1 } : prev);
+          } else showToast("error", "Failed to mark as eaten.");
+        } catch { showToast("error", "Failed to mark as eaten."); }
+        finally { setMarkingEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; }); }
+      },
+    });
   };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -748,6 +758,7 @@ export default function Plan() {
   //   no city open  → one pin per city (using item's DB lat/lng, city color = first dish color)
   //   city open     → all restaurant pins for all dishes in that city (each dish color)
   //   dish selected → only that dish's restaurant pins
+  type MapDisplayItem = ItineraryItem & { restaurant_name: string | null; restaurant_id: string | null; color: string };
   const mapDisplayItems = (() => {
     const cityGroups = groupByCity(items);
     const expandedGroup = cityGroups.find(g => g.key === expandedCityKey);
@@ -780,17 +791,18 @@ export default function Plan() {
           ...item,
           latitude: r.latitude,
           longitude: r.longitude,
-          restaurant_name: r.name,
+          restaurant_name: r.name as string | null,
+          restaurant_id: r.id as string | null,
           color,
         }));
       }
       // fallback: use item's own DB lat/lng if no cached restaurant yet
       if (item.latitude != null && item.longitude != null) {
-        return [{ ...item, restaurant_name: null as string | null, color }];
+        return [{ ...item, restaurant_name: null as string | null, restaurant_id: null as string | null, color }];
       }
-      return [];
+      return [] as MapDisplayItem[];
     });
-  })();
+  })() as MapDisplayItem[];
 
   const eatenDishIds = new Set(passportEntries.map(e => e.dish_id));
   const isRestaurantEaten = (restaurantId: string) => passportEntries.some(e => e.restaurant_id === restaurantId);
@@ -1160,11 +1172,20 @@ export default function Plan() {
                             <ItineraryMap
                               items={mapDisplayItems}
                               onPinClick={item => {
-                                const sourceItem = items.find(i => i.id === item.id);
-                                if (sourceItem) openDish(sourceItem);
+                                if (item.restaurant_id) {
+                                  // restaurant-level pin: open the dish first if needed, then highlight
+                                  const sourceItem = items.find(i => i.id === item.id);
+                                  if (sourceItem && selectedItem?.id !== sourceItem.id) openDish(sourceItem);
+                                  setSelectedRestaurantId(item.restaurant_id);
+                                  document.getElementById(`restaurant-card-${item.restaurant_id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                                } else {
+                                  const sourceItem = items.find(i => i.id === item.id);
+                                  if (sourceItem) openDish(sourceItem);
+                                }
                               }}
                               selectedItem={selectedItem}
                               focusCoords={focusCoords}
+                              highlightedRestaurantId={selectedRestaurantId}
                             />
                           </div>
 
@@ -1309,8 +1330,22 @@ export default function Plan() {
                                     )}
                                     {restaurants.map(r => {
                                       const eaten = isRestaurantEaten(r.id);
+                                      const isHighlighted = selectedRestaurantId === r.id;
                                       return (
-                                        <div key={r.id} className={`rounded-lg border p-3 transition-all ${eaten ? "border-green-200 bg-green-50" : "border-gray-100 hover:border-primary"}`}>
+                                        <div
+                                          key={r.id}
+                                          id={`restaurant-card-${r.id}`}
+                                          onClick={() => {
+                                            setSelectedRestaurantId(prev => prev === r.id ? null : r.id);
+                                            if (r.latitude != null && r.longitude != null) {
+                                              setFocusCoords({ lat: r.latitude, lng: r.longitude });
+                                            }
+                                          }}
+                                          className={`rounded-lg border p-3 transition-all cursor-pointer ${
+                                            isHighlighted ? "border-primary ring-1 ring-primary bg-purple-50" :
+                                            eaten ? "border-green-200 bg-green-50" : "border-gray-100 hover:border-primary"
+                                          }`}
+                                        >
                                           <div className="flex items-start justify-between gap-2 mb-1">
                                             <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
                                             {r.google_rating && <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>}
@@ -1323,15 +1358,15 @@ export default function Plan() {
                                             ) : eaten ? (
                                               <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
                                             ) : (
-                                              <button onClick={() => handleMarkEaten(r)} disabled={markingEaten.has(r.id)}
+                                              <button onClick={e => { e.stopPropagation(); handleMarkEaten(r); }} disabled={markingEaten.has(r.id)}
                                                 className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors">
                                                 {markingEaten.has(r.id) ? "Saving…" : "✓ Already Been"}
                                               </button>
                                             )}
                                             {r.google_maps_url && (
-                                              <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">📍 Maps</a>
+                                              <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-xs text-blue-600 hover:underline">📍 Maps</a>
                                             )}
-                                            <button onClick={() => handleRemoveRestaurant(selectedItem!.id, r.id)}
+                                            <button onClick={e => { e.stopPropagation(); handleRemoveRestaurant(selectedItem!.id, r.id); }}
                                               className="ml-auto text-xs text-red-300 hover:text-red-500 transition-colors" title="Remove from list">✕</button>
                                           </div>
                                         </div>
@@ -1424,6 +1459,42 @@ export default function Plan() {
             onConfirm={() => handleDeleteTrip(confirmDeleteTripId)}
             onCancel={() => setConfirmDeleteTripId(null)}
           />
+        )}
+
+        {eatenDateModal && (
+          <Portal>
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+                <h2 className="text-lg font-bold text-dark mb-1">Log to Passport</h2>
+                <p className="text-sm text-gray-500 mb-5">{eatenDateModal.label}</p>
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={eatenDate}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={e => setEatenDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => eatenDateModal.onConfirm(eatenDate)}
+                    disabled={!eatenDate}
+                    className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700 disabled:opacity-50 transition-colors"
+                  >
+                    ✓ Confirm
+                  </button>
+                  <button
+                    onClick={() => setEatenDateModal(null)}
+                    className="px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg text-sm hover:border-gray-400 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Portal>
         )}
 
         {tripModal && (

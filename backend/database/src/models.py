@@ -160,15 +160,34 @@ class PassportEntries(BaseModel):
         """
         return self.db.query(sql, [{'name': 'uid', 'value': {'stringValue': clerk_user_id}}])
 
-    def find_by_user_and_dish(self, clerk_user_id: str, dish_id: str) -> Optional[Dict]:
+    def find_by_user_and_dish(self, clerk_user_id: str, dish_id: str) -> List[Dict]:
         sql = """
             SELECT * FROM passport_entries
             WHERE clerk_user_id = :uid AND dish_id = :dish_id::uuid
         """
-        return self.db.query_one(sql, [
+        return self.db.query(sql, [
             {'name': 'uid', 'value': {'stringValue': clerk_user_id}},
             {'name': 'dish_id', 'value': {'stringValue': dish_id}},
         ])
+
+    def find_by_user_dish_and_restaurant(self, clerk_user_id: str, dish_id: str, restaurant_id: Optional[str]) -> Optional[Dict]:
+        if restaurant_id:
+            sql = """SELECT * FROM passport_entries
+                     WHERE clerk_user_id = :uid AND dish_id = :dish_id::uuid
+                       AND restaurant_id = :rid::uuid"""
+            return self.db.query_one(sql, [
+                {'name': 'uid',     'value': {'stringValue': clerk_user_id}},
+                {'name': 'dish_id', 'value': {'stringValue': dish_id}},
+                {'name': 'rid',     'value': {'stringValue': restaurant_id}},
+            ])
+        else:
+            sql = """SELECT * FROM passport_entries
+                     WHERE clerk_user_id = :uid AND dish_id = :dish_id::uuid
+                       AND restaurant_id IS NULL"""
+            return self.db.query_one(sql, [
+                {'name': 'uid',     'value': {'stringValue': clerk_user_id}},
+                {'name': 'dish_id', 'value': {'stringValue': dish_id}},
+            ])
 
     def create_entry(self, clerk_user_id: str, entry: PassportEntryCreate) -> str:
         data = {k: v for k, v in {
@@ -183,10 +202,9 @@ class PassportEntries(BaseModel):
             return self.db.insert('passport_entries', data, returning='id')
         except Exception as e:
             if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
-                existing = self.find_by_user_and_dish(clerk_user_id, entry.dish_id)
+                # Already logged this exact dish+restaurant combo — that's fine, return existing id
+                existing = self.find_by_user_dish_and_restaurant(clerk_user_id, entry.dish_id, entry.restaurant_id)
                 if existing:
-                    update = PassportEntryUpdate(restaurant_id=entry.restaurant_id)
-                    self.update_entry(existing['id'], update)
                     return existing['id']
             raise
 
@@ -199,7 +217,7 @@ class PassportEntries(BaseModel):
     def stats_for_user(self, clerk_user_id: str) -> Dict:
         sql = """
             SELECT
-                COUNT(*)                          AS total_dishes,
+                COUNT(DISTINCT pe.dish_id)        AS total_dishes,
                 COUNT(DISTINCT d.city_id)         AS cities_visited,
                 COUNT(DISTINCT d.cuisine_type)    AS cuisine_types,
                 ROUND(AVG(pe.rating), 1)          AS avg_rating
