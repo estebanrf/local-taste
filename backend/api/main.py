@@ -396,14 +396,21 @@ async def get_passport(clerk_user_id: str = Depends(get_current_user_id)):
 @app.post("/api/passport")
 async def add_passport_entry(entry: PassportEntryCreate, clerk_user_id: str = Depends(get_current_user_id)):
     try:
-        # Verify dish exists
-        dish = db.dishes.find_by_id(entry.dish_id)
-        if not dish:
-            raise HTTPException(status_code=404, detail="Dish not found")
+        if entry.dish_id:
+            # Dish-based entry: verify dish exists
+            dish = db.dishes.find_by_id(entry.dish_id)
+            if not dish:
+                raise HTTPException(status_code=404, detail="Dish not found")
+            existing = db.passport.find_by_user_dish_and_restaurant(clerk_user_id, entry.dish_id, entry.restaurant_id)
+        else:
+            # Category-based entry: dish_name + city_name required
+            if not entry.dish_name or not entry.city_name:
+                raise HTTPException(status_code=400, detail="dish_name and city_name required for category entries")
+            existing = db.passport.find_by_user_category_and_restaurant(clerk_user_id, entry.dish_name, entry.city_name, entry.restaurant_id)
 
-        # Check if this exact dish+restaurant combo already logged
-        existing = db.passport.find_by_user_dish_and_restaurant(clerk_user_id, entry.dish_id, entry.restaurant_id)
         if existing:
+            if entry.itinerary_ids:
+                db.passport.append_itinerary_ids(existing['id'], entry.itinerary_ids)
             return {"id": existing['id'], "already_exists": True}
 
         entry_id = db.passport.create_entry(clerk_user_id, entry)

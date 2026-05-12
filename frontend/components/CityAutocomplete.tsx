@@ -3,11 +3,12 @@ import { searchCities, CityOption } from "../lib/cities";
 
 interface Props {
   onSelect: (city: string, country: string) => void;
+  initialValue?: string;
   disabled?: boolean;
 }
 
-export default function CityAutocomplete({ onSelect, disabled }: Props) {
-  const [query, setQuery] = useState("");
+export default function CityAutocomplete({ onSelect, initialValue = "", disabled }: Props) {
+  const [query, setQuery] = useState(initialValue);
   const [results, setResults] = useState<CityOption[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [open, setOpen] = useState(false);

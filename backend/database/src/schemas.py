@@ -67,7 +67,10 @@ class RestaurantResponse(RestaurantCreate):
 # ── Passport entry ────────────────────────────────────────────────────────────
 
 class PassportEntryCreate(BaseModel):
-    dish_id: str = Field(description="UUID of the dish tasted")
+    dish_id: Optional[str] = Field(None, description="UUID of the dish tasted (None for category items)")
+    dish_name: Optional[str] = Field(None, description="Free-text dish name for category items")
+    city_name: Optional[str] = Field(None, description="City name for category items")
+    country: Optional[str] = Field(None, description="Country for category items")
     restaurant_id: Optional[str] = Field(None, description="UUID of the restaurant (optional)")
     tasted_at: Optional[date] = Field(default_factory=date.today, description="Date tasted")
     rating: Optional[int] = Field(None, ge=1, le=5, description="Personal rating 1-5")

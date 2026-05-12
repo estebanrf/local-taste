@@ -1,26 +1,37 @@
 import { useState } from "react";
 import { DIETARY_OPTIONS } from "../lib/dietary";
 import Portal from "./Portal";
+import CityAutocomplete from "./CityAutocomplete";
 
 interface Props {
   initialDisplayName: string;
+  initialHomeCity?: string;
+  initialDietary?: string[];
   onComplete: (profile: { display_name: string; home_city: string; dietary_notes: string }) => void;
   onSkip: () => void;
 }
 
-const STEPS = ["Name", "Home City", "Preferences"] as const;
+type StepKey = "name" | "homeCity" | "dietary";
 
-export default function OnboardingWizard({ initialDisplayName, onComplete, onSkip }: Props) {
-  const [step, setStep] = useState(0);
+export default function OnboardingWizard({ initialDisplayName, initialHomeCity = "", initialDietary = [], onComplete, onSkip }: Props) {
   const [displayName, setDisplayName] = useState(initialDisplayName);
-  const [homeCity, setHomeCity] = useState("");
-  const [dietary, setDietary] = useState<string[]>([]);
+  const [homeCity, setHomeCity] = useState(initialHomeCity);
+  const [dietary, setDietary] = useState<string[]>(initialDietary);
+
+  const pendingSteps: StepKey[] = [
+    ...(!initialDisplayName.trim()   ? ["name"     as StepKey] : []),
+    ...(!initialHomeCity.trim()      ? ["homeCity" as StepKey] : []),
+    ...(initialDietary.length === 0  ? ["dietary"  as StepKey] : []),
+  ];
+
+  const [stepIndex, setStepIndex] = useState(0);
+  const currentStep = pendingSteps[stepIndex];
 
   const toggleDietary = (id: string) =>
     setDietary(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const next = () => {
-    if (step < STEPS.length - 1) setStep(s => s + 1);
+    if (stepIndex < pendingSteps.length - 1) setStepIndex(i => i + 1);
     else finish();
   };
 
@@ -42,15 +53,15 @@ export default function OnboardingWizard({ initialDisplayName, onComplete, onSki
             <p className="text-sm opacity-80 mt-1">Takes 30 seconds, helps us personalise your experience.</p>
             {/* Step dots */}
             <div className="flex gap-2 mt-5">
-              {STEPS.map((_, i) => (
-                <div key={i} className={`h-1.5 rounded-full transition-all ${i <= step ? "bg-white w-8" : "bg-white/30 w-4"}`} />
+              {pendingSteps.map((_, i) => (
+                <div key={i} className={`h-1.5 rounded-full transition-all ${i <= stepIndex ? "bg-white w-8" : "bg-white/30 w-4"}`} />
               ))}
             </div>
           </div>
 
           {/* Body */}
           <div className="px-8 py-6">
-            {step === 0 && (
+            {currentStep === "name" && (
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">What should we call you?</label>
                 <input
@@ -65,23 +76,18 @@ export default function OnboardingWizard({ initialDisplayName, onComplete, onSki
               </div>
             )}
 
-            {step === 1 && (
+            {currentStep === "homeCity" && (
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Where are you based?</label>
                 <p className="text-xs text-gray-400 mb-3">We&apos;ll use this to distinguish home from travel.</p>
-                <input
-                  autoFocus
-                  type="text"
-                  value={homeCity}
-                  onChange={e => setHomeCity(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && next()}
-                  placeholder="e.g. Barcelona, Spain"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-base"
+                <CityAutocomplete
+                  initialValue={homeCity}
+                  onSelect={(city, country) => setHomeCity(`${city}, ${country}`)}
                 />
               </div>
             )}
 
-            {step === 2 && (
+            {currentStep === "dietary" && (
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Any dietary preferences?</label>
                 <p className="text-xs text-gray-400 mb-3">We surface better restaurant options when you search.</p>
@@ -113,7 +119,7 @@ export default function OnboardingWizard({ initialDisplayName, onComplete, onSki
               onClick={next}
               className="px-6 py-2.5 bg-primary text-white rounded-xl font-semibold hover:bg-purple-700 transition-colors text-sm"
             >
-              {step === STEPS.length - 1 ? "Done ✓" : "Continue →"}
+              {stepIndex === pendingSteps.length - 1 ? "Done ✓" : "Continue →"}
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
+import { useRouter } from "next/router";
 import Layout from "../components/Layout";
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
@@ -8,10 +9,11 @@ import OnboardingWizard from "../components/OnboardingWizard";
 import Link from "next/link";
 import Head from "next/head";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
+import CityAutocomplete from "../components/CityAutocomplete";
 
 interface PassportEntry {
   id: string;
-  dish_id: string;
+  dish_id: string | null;
   dish_name: string;
   city_name: string;
   country: string;
@@ -22,6 +24,7 @@ interface PassportEntry {
   notes: string | null;
   restaurant_name: string | null;
   restaurant_id: string | null;
+  itinerary_ids: string[];
 }
 
 interface Stats {
@@ -34,9 +37,12 @@ interface Stats {
 export default function Passport() {
   const { getToken } = useAuth();
   const { isLoaded: isUserLoaded } = useUser();
+  const router = useRouter();
   const [entries, setEntries] = useState<PassportEntry[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [itineraries, setItineraries] = useState<{id: string; name: string}[]>([]);
+  const [openTripPickerId, setOpenTripPickerId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRating, setEditRating] = useState<number>(0);
   const [editNotes, setEditNotes] = useState("");
@@ -53,14 +59,19 @@ export default function Passport() {
   const load = async () => {
     try {
       const token = await getToken();
-      const [passportRes, userRes] = await Promise.all([
-        fetch(`${API_URL}/api/passport`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/user`,     { headers: { Authorization: `Bearer ${token}` } }),
+      const [passportRes, userRes, itinerariesRes] = await Promise.all([
+        fetch(`${API_URL}/api/passport`,    { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/user`,        { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/itineraries`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (passportRes.ok) {
         const data = await passportRes.json();
         setEntries(data.entries || []);
         setStats(data.stats);
+      }
+      if (itinerariesRes.ok) {
+        const data = await itinerariesRes.json();
+        setItineraries(data.itineraries || []);
       }
       if (userRes.ok) {
         const userData = await userRes.json();
@@ -69,8 +80,13 @@ export default function Passport() {
         setDietaryPrefs(prefs);
         setDisplayName(u?.display_name || "");
         setHomeCity(u?.home_city || "");
-        // Show wizard if newly created or profile clearly not filled in
-        if (userData.created || !u?.home_city) setShowWizard(true);
+        // Show wizard once per session if anything is still missing
+        const alreadyShown = sessionStorage.getItem("onboarding_shown");
+        const incomplete = !u?.home_city || !u?.display_name || !u?.dietary_notes || u?.dietary_notes === "[]";
+        if (!alreadyShown && incomplete) {
+          sessionStorage.setItem("onboarding_shown", "1");
+          setShowWizard(true);
+        }
       }
     } catch { /* silent */ } finally {
       setLoading(false);
@@ -144,6 +160,16 @@ export default function Passport() {
     }
   };
 
+  const goToPlan = (entry: PassportEntry, itineraryId: string) => {
+    setOpenTripPickerId(null);
+    const params = new URLSearchParams({ itinerary: itineraryId });
+    if (entry.dish_id)      params.set("dish_id",      entry.dish_id);
+    if (entry.dish_name)    params.set("dish_name",    entry.dish_name);
+    if (entry.city_name)    params.set("city_name",    entry.city_name);
+    if (entry.restaurant_id) params.set("restaurant_id", entry.restaurant_id);
+    router.push(`/plan?${params.toString()}`);
+  };
+
   // ── Passport completion score ─────────────────────────────────────────────
 
   const completionSteps: { label: string; done: boolean }[] = [
@@ -210,6 +236,8 @@ export default function Passport() {
       {showWizard && (
         <OnboardingWizard
           initialDisplayName={displayName}
+          initialHomeCity={homeCity}
+          initialDietary={dietaryPrefs}
           onComplete={handleWizardComplete}
           onSkip={() => setShowWizard(false)}
         />
@@ -299,9 +327,10 @@ export default function Passport() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Home City</label>
-                <input type="text" value={homeCity} onChange={e => setHomeCity(e.target.value)}
-                  placeholder="e.g. Barcelona, Spain"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+                <CityAutocomplete
+                  initialValue={homeCity}
+                  onSelect={(city, country) => setHomeCity(`${city}, ${country}`)}
+                />
               </div>
             </div>
             <button onClick={handleSaveProfile} disabled={saving}
@@ -418,11 +447,44 @@ export default function Passport() {
                           {new Date(entry.tasted_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
                         </p>
                       </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <button onClick={() => startEdit(entry)}
-                          className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary">Edit</button>
-                        <button onClick={() => setConfirmDeleteId(entry.id)}
-                          className="text-xs px-3 py-1.5 border border-red-200 text-red-400 rounded-lg hover:border-red-400 hover:text-red-600">Remove</button>
+                      <div className="flex flex-col gap-2 flex-shrink-0 items-end">
+                        {/* Go to plan */}
+                        {entry.itinerary_ids?.length > 0 && (() => {
+                          const trips = itineraries.filter(t => entry.itinerary_ids.includes(t.id));
+                          if (trips.length === 0) return null;
+                          if (trips.length === 1) return (
+                            <button onClick={() => goToPlan(entry, trips[0].id)}
+                              className="text-xs px-3 py-1.5 bg-purple-50 border border-primary text-primary rounded-lg hover:bg-purple-100 whitespace-nowrap">
+                              📋 {trips[0].name} →
+                            </button>
+                          );
+                          return (
+                            <div className="relative">
+                              <button
+                                onClick={() => setOpenTripPickerId(openTripPickerId === entry.id ? null : entry.id)}
+                                className="text-xs px-3 py-1.5 bg-purple-50 border border-primary text-primary rounded-lg hover:bg-purple-100 whitespace-nowrap"
+                              >
+                                📋 {trips.length} plans →
+                              </button>
+                              {openTripPickerId === entry.id && (
+                                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-max">
+                                  {trips.map(t => (
+                                    <button key={t.id} onClick={() => goToPlan(entry, t.id)}
+                                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-primary">
+                                      {t.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        <div className="flex gap-2">
+                          <button onClick={() => startEdit(entry)}
+                            className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary">Edit</button>
+                          <button onClick={() => setConfirmDeleteId(entry.id)}
+                            className="text-xs px-3 py-1.5 border border-red-200 text-red-400 rounded-lg hover:border-red-400 hover:text-red-600">Remove</button>
+                        </div>
                       </div>
                     </div>
                   )}

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
+import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
 import Layout from "../components/Layout";
 import { API_URL } from "../lib/config";
@@ -77,6 +78,15 @@ interface PassportEntry {
 export default function Plan() {
   const { getToken } = useAuth();
   const { isLoaded: isUserLoaded } = useUser();
+  const router = useRouter();
+  // Stores deep-link intent from passport navigation; consumed once after items load
+  const deepLinkRef = useRef<{
+    itineraryId: string;
+    dishId?: string;
+    dishName?: string;
+    cityName?: string;
+    restaurantId?: string;
+  } | null>(null);
 
   // ── Shared ────────────────────────────────────────────────────────────────
   const [passportEntries, setPassportEntries] = useState<PassportEntry[]>([]);
@@ -149,6 +159,58 @@ export default function Plan() {
         const data = await res.json();
         const loaded: ItineraryItem[] = data.items || [];
         setItems(loaded);
+
+        // ── Deep-link focus (coming from passport "Go to plan") ──────────────
+        const intent = deepLinkRef.current;
+        if (intent && intent.itineraryId === itineraryId) {
+          deepLinkRef.current = null;
+
+          // 1. Find the matching item by dish_id or dish_name+city_name
+          const matchItem = loaded.find(i =>
+            intent.dishId
+              ? i.dish_id === intent.dishId
+              : i.dish_name === intent.dishName && i.city_name === intent.cityName
+          );
+
+          if (matchItem) {
+            // Expand the city and select the item
+            const cityKey = `${matchItem.city_name}|${matchItem.country}`;
+            setExpandedCityKey(cityKey);
+            setSelectedItem(matchItem);
+
+            // 2. Try to focus the restaurant pin if it's still in the item
+            if (intent.restaurantId && matchItem.restaurant_ids.includes(intent.restaurantId)) {
+              setSelectedRestaurantId(intent.restaurantId);
+              // Fetch restaurants so we can get coords for the map fly
+              const token = await getToken();
+              if (token) {
+                const rList = await fetchRestaurants(token, matchItem.dish_id, matchItem.restaurant_ids);
+                setRestaurants(rList);
+                const target = rList.find(r => r.id === intent.restaurantId);
+                if (target?.latitude && target?.longitude) {
+                  setFocusCoords({ lat: target.latitude, lng: target.longitude });
+                }
+                // Scroll card into view
+                setTimeout(() => {
+                  document.getElementById(`restaurant-card-${intent.restaurantId}`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }, 300);
+              }
+            } else if (matchItem.latitude && matchItem.longitude) {
+              // 3. No restaurant — fly to the dish/category pin
+              setFocusCoords({ lat: matchItem.latitude, lng: matchItem.longitude });
+            }
+          } else {
+            // 4. Item not in plan — just expand the city if we know it
+            if (intent.cityName) {
+              const cityKey = loaded.find(i => i.city_name === intent.cityName)
+                ? `${intent.cityName}|${loaded.find(i => i.city_name === intent.cityName)!.country}`
+                : null;
+              if (cityKey) setExpandedCityKey(cityKey);
+            }
+            // 5. If nothing matches, plan is just opened — no extra focus needed
+          }
+        }
       }
     } finally {
       setLoadingItems(false);
@@ -156,16 +218,28 @@ export default function Plan() {
   }, [getToken]);
 
   useEffect(() => {
-    if (!isUserLoaded) return;
+    if (!isUserLoaded || !router.isReady) return;
+    const { itinerary, dish_id, dish_name, city_name, restaurant_id } = router.query;
+    if (itinerary) {
+      deepLinkRef.current = {
+        itineraryId:  String(itinerary),
+        dishId:       dish_id       ? String(dish_id)       : undefined,
+        dishName:     dish_name     ? String(dish_name)     : undefined,
+        cityName:     city_name     ? String(city_name)     : undefined,
+        restaurantId: restaurant_id ? String(restaurant_id) : undefined,
+      };
+    }
     Promise.all([loadItineraries(), loadPassport()]).then(([list]) => {
-      if (list && list.length > 0) {
-        setActiveId(list[0].id);
-        loadItems(list[0].id);
+      const targetId = deepLinkRef.current?.itineraryId;
+      const startId = targetId ?? (list && list.length > 0 ? list[0].id : null);
+      if (startId) {
+        setActiveId(startId);
+        loadItems(startId);
       }
       setLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isUserLoaded]);
+  }, [isUserLoaded, router.isReady]);
 
   const switchTrip = (id: string) => {
     setActiveId(id);
@@ -418,19 +492,23 @@ export default function Plan() {
   };
 
   const handleMarkDishEaten = (item: ItineraryItem) => {
-    if (!item.dish_id || markingEaten.has(item.dish_id)) return;
+    const eatKey = item.dish_id ?? `cat:${item.dish_name}:${item.city_name}`;
+    if (markingEaten.has(eatKey)) return;
     setEatenDate(new Date().toISOString().slice(0, 10));
     setEatenDateModal({
       label: `When did you try "${item.dish_name}"?`,
       onConfirm: async (tastedAt: string) => {
         setEatenDateModal(null);
-        setMarkingEaten(prev => new Set(prev).add(item.dish_id!));
+        setMarkingEaten(prev => new Set(prev).add(eatKey));
         try {
           const token = await getToken();
+          const body = item.dish_id
+            ? { dish_id: item.dish_id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }
+            : { dish_name: item.dish_name, city_name: item.city_name, country: item.country, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] };
           const res = await fetch(`${API_URL}/api/passport`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ dish_id: item.dish_id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }),
+            body: JSON.stringify(body),
           });
           if (res.ok) {
             showToast("success", `"${item.dish_name}" added to your passport!`);
@@ -438,13 +516,13 @@ export default function Plan() {
             setItems(prev => prev.map(i => i.id === item.id ? { ...i, eaten_count: (i.eaten_count || 0) + 1 } : i));
           } else showToast("error", "Failed to mark as eaten.");
         } catch { showToast("error", "Failed to mark as eaten."); }
-        finally { setMarkingEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; }); }
+        finally { setMarkingEaten(prev => { const n = new Set(prev); n.delete(eatKey); return n; }); }
       },
     });
   };
 
   const handleMarkEaten = (restaurant: Restaurant) => {
-    if (!selectedItem?.dish_id || markingEaten.has(restaurant.id)) return;
+    if (!selectedItem || markingEaten.has(restaurant.id)) return;
     setEatenDate(new Date().toISOString().slice(0, 10));
     setEatenDateModal({
       label: `When did you visit ${restaurant.name}?`,
@@ -456,7 +534,10 @@ export default function Plan() {
           const res = await fetch(`${API_URL}/api/passport`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ dish_id: selectedItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }),
+            body: JSON.stringify(selectedItem.dish_id
+              ? { dish_id: selectedItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }
+              : { dish_name: selectedItem.dish_name, city_name: selectedItem.city_name, country: selectedItem.country, restaurant_id: restaurant.id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }
+            ),
           });
           if (res.ok) {
             showToast("success", `"${selectedItem.dish_name}" at ${restaurant.name} added to your passport!`);

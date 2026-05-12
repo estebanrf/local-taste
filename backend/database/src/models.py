@@ -148,12 +148,16 @@ class PassportEntries(BaseModel):
 
     def find_by_user(self, clerk_user_id: str) -> List[Dict]:
         sql = """
-            SELECT pe.*, d.name AS dish_name, d.cuisine_type, d.rank AS dish_rank,
-                   c.name AS city_name, c.country,
-                   r.name AS restaurant_name
+            SELECT pe.*,
+                   COALESCE(d.name, pe.dish_name)   AS dish_name,
+                   d.cuisine_type,
+                   d.rank                           AS dish_rank,
+                   COALESCE(c.name, pe.city_name)   AS city_name,
+                   COALESCE(c.country, pe.country)  AS country,
+                   r.name                           AS restaurant_name
             FROM passport_entries pe
-            JOIN dishes d ON pe.dish_id = d.id
-            JOIN cities c ON d.city_id = c.id
+            LEFT JOIN dishes d      ON pe.dish_id = d.id
+            LEFT JOIN cities c      ON d.city_id = c.id
             LEFT JOIN restaurants r ON pe.restaurant_id = r.id
             WHERE pe.clerk_user_id = :uid
             ORDER BY pe.tasted_at DESC, pe.created_at DESC
@@ -169,6 +173,29 @@ class PassportEntries(BaseModel):
             {'name': 'uid', 'value': {'stringValue': clerk_user_id}},
             {'name': 'dish_id', 'value': {'stringValue': dish_id}},
         ])
+
+    def find_by_user_category_and_restaurant(self, clerk_user_id: str, dish_name: str, city_name: str, restaurant_id: Optional[str]) -> Optional[Dict]:
+        if restaurant_id:
+            sql = """SELECT * FROM passport_entries
+                     WHERE clerk_user_id = :uid AND dish_id IS NULL
+                       AND dish_name = :dish_name AND city_name = :city_name
+                       AND restaurant_id = :rid::uuid"""
+            return self.db.query_one(sql, [
+                {'name': 'uid',       'value': {'stringValue': clerk_user_id}},
+                {'name': 'dish_name', 'value': {'stringValue': dish_name}},
+                {'name': 'city_name', 'value': {'stringValue': city_name}},
+                {'name': 'rid',       'value': {'stringValue': restaurant_id}},
+            ])
+        else:
+            sql = """SELECT * FROM passport_entries
+                     WHERE clerk_user_id = :uid AND dish_id IS NULL
+                       AND dish_name = :dish_name AND city_name = :city_name
+                       AND restaurant_id IS NULL"""
+            return self.db.query_one(sql, [
+                {'name': 'uid',       'value': {'stringValue': clerk_user_id}},
+                {'name': 'dish_name', 'value': {'stringValue': dish_name}},
+                {'name': 'city_name', 'value': {'stringValue': city_name}},
+            ])
 
     def find_by_user_dish_and_restaurant(self, clerk_user_id: str, dish_id: str, restaurant_id: Optional[str]) -> Optional[Dict]:
         if restaurant_id:
@@ -192,11 +219,14 @@ class PassportEntries(BaseModel):
     def create_entry(self, clerk_user_id: str, entry: PassportEntryCreate) -> str:
         data = {k: v for k, v in {
             'clerk_user_id': clerk_user_id,
-            'dish_id': entry.dish_id,
+            'dish_id':     entry.dish_id,
+            'dish_name':   entry.dish_name,
+            'city_name':   entry.city_name,
+            'country':     entry.country,
             'restaurant_id': entry.restaurant_id,
-            'tasted_at': entry.tasted_at if entry.tasted_at else date.today(),
-            'rating': entry.rating,
-            'notes': entry.notes,
+            'tasted_at':   entry.tasted_at if entry.tasted_at else date.today(),
+            'rating':      entry.rating,
+            'notes':       entry.notes,
         }.items() if v is not None}
         data['itinerary_ids'] = [str(i) for i in entry.itinerary_ids]
         try:
