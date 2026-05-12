@@ -45,8 +45,8 @@ export default function Layout({ children }: LayoutProps) {
                 </Link>
                 <div className="hidden md:flex items-center gap-6">
                   {navLink("/explore", "Explore")}
-                  {navLink("/itinerary", "My Trips")}
-                  {navLink("/passport", "My Passport")}
+                  {navLink("/plan", "Plan")}
+                  {navLink("/passport", "Passport")}
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -59,7 +59,7 @@ export default function Layout({ children }: LayoutProps) {
             {/* Mobile nav */}
             <div className="md:hidden flex items-center gap-4 pb-3">
               {navLink("/explore", "Explore")}
-              {navLink("/itinerary", "My Trips")}
+              {navLink("/plan", "Plan")}
               {navLink("/passport", "Passport")}
             </div>
           </div>

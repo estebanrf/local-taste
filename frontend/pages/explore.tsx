@@ -5,6 +5,7 @@ import CityAutocomplete from "../components/CityAutocomplete";
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
+import Portal from "../components/Portal";
 import Link from "next/link";
 import Head from "next/head";
 
@@ -868,6 +869,7 @@ export default function Explore() {
         </div>
         {/* Save modal */}
         {saveModal && (
+          <Portal>
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
               <h2 className="text-lg font-bold text-dark mb-1">Save this dish</h2>
@@ -984,6 +986,7 @@ export default function Explore() {
               </div>
             </div>
           </div>
+          </Portal>
         )}
       </Layout>
     </>
