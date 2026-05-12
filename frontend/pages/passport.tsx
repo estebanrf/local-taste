@@ -4,6 +4,7 @@ import Layout from "../components/Layout";
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
 import ConfirmModal from "../components/ConfirmModal";
+import OnboardingWizard from "../components/OnboardingWizard";
 import Link from "next/link";
 import Head from "next/head";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
@@ -47,6 +48,7 @@ export default function Passport() {
   const [displayName, setDisplayName] = useState("");
   const [homeCity, setHomeCity] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
 
   const load = async () => {
     try {
@@ -63,9 +65,12 @@ export default function Passport() {
       if (userRes.ok) {
         const userData = await userRes.json();
         const u = userData.user;
-        setDietaryPrefs(parseDietaryPrefs(u?.dietary_notes));
+        const prefs = parseDietaryPrefs(u?.dietary_notes);
+        setDietaryPrefs(prefs);
         setDisplayName(u?.display_name || "");
         setHomeCity(u?.home_city || "");
+        // Show wizard if newly created or profile clearly not filled in
+        if (userData.created || !u?.home_city) setShowWizard(true);
       }
     } catch { /* silent */ } finally {
       setLoading(false);
@@ -121,6 +126,36 @@ export default function Passport() {
     }
   };
 
+  const handleWizardComplete = async (profile: { display_name: string; home_city: string; dietary_notes: string }) => {
+    setShowWizard(false);
+    try {
+      const token = await getToken();
+      await fetch(`${API_URL}/api/user`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(profile),
+      });
+      setDisplayName(profile.display_name);
+      setHomeCity(profile.home_city);
+      setDietaryPrefs(parseDietaryPrefs(profile.dietary_notes));
+      showToast("success", "Passport activated!");
+    } catch {
+      showToast("error", "Failed to save profile.");
+    }
+  };
+
+  // ── Passport completion score ─────────────────────────────────────────────
+
+  const completionSteps: { label: string; done: boolean }[] = [
+    { label: "Display name set",        done: !!displayName.trim() },
+    { label: "Home city set",           done: !!homeCity.trim() },
+    { label: "Dietary prefs set",       done: dietaryPrefs.length > 0 },
+    { label: "First dish logged",       done: (stats?.total_dishes ?? 0) >= 1 },
+    { label: "3+ dishes logged",        done: (stats?.total_dishes ?? 0) >= 3 },
+    { label: "2+ cities explored",      done: (stats?.cities_visited ?? 0) >= 2 },
+  ];
+  const completionPct = Math.round((completionSteps.filter(s => s.done).length / completionSteps.length) * 100);
+
   const startEdit = (entry: PassportEntry) => {
     setEditingId(entry.id);
     setEditRating(entry.rating || 0);
@@ -172,6 +207,13 @@ export default function Passport() {
   return (
     <>
       <Head><title>My Passport - Local Taste</title></Head>
+      {showWizard && (
+        <OnboardingWizard
+          initialDisplayName={displayName}
+          onComplete={handleWizardComplete}
+          onSkip={() => setShowWizard(false)}
+        />
+      )}
       <Layout>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex items-center justify-between mb-8">
@@ -201,6 +243,48 @@ export default function Passport() {
                 <p className="text-3xl font-bold text-dark">{stats.cuisine_types}</p>
                 <p className="text-sm text-gray-500">Cuisine Types</p>
               </div>
+            </div>
+          )}
+
+          {/* Passport completion */}
+          {!loading && completionPct < 100 && (
+            <div className="bg-white rounded-xl shadow p-5 mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h2 className="text-sm font-bold text-dark">Passport completion</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Complete your profile to get the most out of Local Taste</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold text-primary">{completionPct}%</span>
+                  <button
+                    onClick={() => setShowWizard(true)}
+                    className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-purple-700 font-medium transition-colors whitespace-nowrap"
+                  >
+                    Complete ↗
+                  </button>
+                </div>
+              </div>
+              {/* Progress bar */}
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-purple-400 rounded-full transition-all duration-500"
+                  style={{ width: `${completionPct}%` }}
+                />
+              </div>
+              {/* Step checklist */}
+              <div className="flex flex-wrap gap-x-5 gap-y-1">
+                {completionSteps.map(s => (
+                  <span key={s.label} className={`text-xs flex items-center gap-1 ${s.done ? "text-green-600" : "text-gray-400"}`}>
+                    {s.done ? "✓" : "○"} {s.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {!loading && completionPct === 100 && (
+            <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-3 mb-8 flex items-center gap-3">
+              <span className="text-xl">🛂</span>
+              <p className="text-sm font-semibold text-green-700">Passport fully activated — enjoy the journey!</p>
             </div>
           )}
 

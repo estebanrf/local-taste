@@ -24,7 +24,6 @@ from src.schemas import (
     PassportEntryUpdate,
     ItineraryCreate,
     ItineraryItemCreate,
-    WishlistItemCreate,
     JobType, JobStatus,
 )
 
@@ -470,9 +469,9 @@ async def list_itineraries(clerk_user_id: str = Depends(get_current_user_id)):
 @app.post("/api/itineraries")
 async def create_itinerary(body: ItineraryCreate, clerk_user_id: str = Depends(get_current_user_id)):
     try:
-        itinerary_id = db.itineraries.create_itinerary(clerk_user_id, body.name.strip())
+        itinerary_id = db.itineraries.create_itinerary(clerk_user_id, body.name.strip(), body.list_type)
         logger.info(f"Created itinerary id={itinerary_id} user={clerk_user_id}")
-        return {"id": str(itinerary_id), "name": body.name.strip()}
+        return {"id": str(itinerary_id), "name": body.name.strip(), "list_type": body.list_type}
     except Exception as e:
         logger.error(f"Error creating itinerary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -589,92 +588,6 @@ async def delete_itinerary_item(item_id: str, clerk_user_id: str = Depends(get_c
         raise
     except Exception as e:
         logger.error(f"Error deleting itinerary item: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ── Wishlist ───────────────────────────────────────────────────────────────────
-
-@app.get("/api/wishlist")
-async def get_wishlist(clerk_user_id: str = Depends(get_current_user_id)):
-    try:
-        items = db.wishlist.find_by_user(clerk_user_id)
-        return {"items": items}
-    except Exception as e:
-        logger.error(f"Error fetching wishlist: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/wishlist")
-async def add_wishlist_item(item: WishlistItemCreate, clerk_user_id: str = Depends(get_current_user_id)):
-    try:
-        if item.dish_id:
-            dish = db.dishes.find_by_id(item.dish_id)
-            if not dish:
-                raise HTTPException(status_code=404, detail="Dish not found")
-            city = db.cities.find_by_id(dish["city_id"])
-            if not city:
-                raise HTTPException(status_code=404, detail="City not found")
-            dish_name = dish["name"]
-            city_name = city["name"]
-            country = city["country"]
-            existing = db.wishlist.find_by_user_and_dish(clerk_user_id, item.dish_id)
-            if existing:
-                if item.restaurant_id:
-                    db.wishlist.append_restaurant(existing["id"], item.restaurant_id)
-                return {"id": existing["id"], "ok": True, "already_exists": True}
-        else:
-            if not item.dish_name or not item.city_name or not item.country:
-                raise HTTPException(status_code=400, detail="dish_name, city_name, and country required")
-            dish_name = item.dish_name
-            city_name = item.city_name
-            country = item.country
-            existing = db.wishlist.find_by_user_and_category(clerk_user_id, dish_name, city_name)
-            if existing:
-                if item.restaurant_id:
-                    db.wishlist.append_restaurant(existing["id"], item.restaurant_id)
-                return {"id": existing["id"], "ok": True, "already_exists": True}
-
-        item_id = db.wishlist.create_item(clerk_user_id=clerk_user_id, item=item, dish_name=dish_name, city_name=city_name, country=country)
-        logger.info(f"Wishlist: added {dish_name} user={clerk_user_id}")
-        return {"id": str(item_id), "ok": True}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error adding wishlist item: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/api/wishlist/{item_id}")
-async def delete_wishlist_item(item_id: str, clerk_user_id: str = Depends(get_current_user_id)):
-    try:
-        item = db.wishlist.find_by_id(item_id)
-        if not item:
-            raise HTTPException(status_code=404, detail="Wishlist item not found")
-        if item.get("clerk_user_id") != clerk_user_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
-        db.wishlist.delete_item(item_id)
-        return {"message": "Removed from wishlist"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting wishlist item: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/api/wishlist/{item_id}/restaurants/{restaurant_id}")
-async def remove_wishlist_restaurant(item_id: str, restaurant_id: str, clerk_user_id: str = Depends(get_current_user_id)):
-    try:
-        item = db.wishlist.find_by_id(item_id)
-        if not item:
-            raise HTTPException(status_code=404, detail="Wishlist item not found")
-        if item.get("clerk_user_id") != clerk_user_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
-        db.wishlist.remove_restaurant(item_id, restaurant_id)
-        return {"ok": True}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error removing restaurant from wishlist item: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

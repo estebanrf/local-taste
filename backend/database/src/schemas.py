@@ -3,7 +3,7 @@ Pydantic schemas for Local Taste - food passport platform
 Serve as both database validation and LLM structured output schemas
 """
 
-from typing import List, Literal, Optional, Dict
+from typing import List, Literal, Optional, Dict, Union
 from pydantic import BaseModel, Field
 from decimal import Decimal
 from datetime import date, datetime
@@ -72,6 +72,7 @@ class PassportEntryCreate(BaseModel):
     tasted_at: Optional[date] = Field(default_factory=date.today, description="Date tasted")
     rating: Optional[int] = Field(None, ge=1, le=5, description="Personal rating 1-5")
     notes: Optional[str] = Field(None, description="Personal notes or memories")
+    itinerary_ids: List[str] = Field(default_factory=list, description="Itinerary UUIDs this entry was logged from")
 
 
 class PassportEntryUpdate(BaseModel):
@@ -104,8 +105,12 @@ class UserUpdate(BaseModel):
 
 # ── Itinerary ─────────────────────────────────────────────────────────────────
 
+ListType = Literal["trip", "wishlist", "visited"]
+
+
 class ItineraryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    list_type: ListType = "trip"
 
 
 class ItineraryItemCreate(BaseModel):
@@ -116,17 +121,6 @@ class ItineraryItemCreate(BaseModel):
     notes: Optional[str] = None
     itinerary_id: Optional[str] = None
     restaurant_id: Optional[str] = None
-
-
-# ── Wishlist ───────────────────────────────────────────────────────────────────
-
-class WishlistItemCreate(BaseModel):
-    dish_id: Optional[str] = None
-    dish_name: Optional[str] = None
-    city_name: Optional[str] = None
-    country: Optional[str] = None
-    notes: Optional[str] = None
-    restaurant_id: Optional[str] = None  # single restaurant to append to restaurant_ids
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────

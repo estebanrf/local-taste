@@ -10,7 +10,7 @@ from .schemas import (
     CityCreate, DishCreate, RestaurantCreate,
     PassportEntryCreate, PassportEntryUpdate,
     UserCreate, JobCreate, ItineraryItemCreate,
-    ItineraryCreate, WishlistItemCreate,
+    ItineraryCreate,
 )
 
 
@@ -190,6 +190,7 @@ class PassportEntries(BaseModel):
             ])
 
     def create_entry(self, clerk_user_id: str, entry: PassportEntryCreate) -> str:
+        import json
         data = {k: v for k, v in {
             'clerk_user_id': clerk_user_id,
             'dish_id': entry.dish_id,
@@ -198,15 +199,31 @@ class PassportEntries(BaseModel):
             'rating': entry.rating,
             'notes': entry.notes,
         }.items() if v is not None}
+        data['itinerary_ids'] = json.dumps([str(i) for i in entry.itinerary_ids]) if entry.itinerary_ids else '[]'
         try:
             return self.db.insert('passport_entries', data, returning='id')
         except Exception as e:
             if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
-                # Already logged this exact dish+restaurant combo — that's fine, return existing id
                 existing = self.find_by_user_dish_and_restaurant(clerk_user_id, entry.dish_id, entry.restaurant_id)
                 if existing:
+                    if entry.itinerary_ids:
+                        self.append_itinerary_ids(existing['id'], entry.itinerary_ids)
                     return existing['id']
             raise
+
+    def append_itinerary_ids(self, entry_id: str, itinerary_ids: list) -> None:
+        """Append itinerary UUIDs to an existing passport entry, skipping duplicates."""
+        for iid in itinerary_ids:
+            sql = """
+                UPDATE passport_entries
+                SET itinerary_ids = itinerary_ids || ARRAY[:iid::uuid]
+                WHERE id = :id::uuid
+                  AND NOT (itinerary_ids @> ARRAY[:iid::uuid])
+            """
+            self.db.execute(sql, [
+                {'name': 'iid', 'value': {'stringValue': str(iid)}},
+                {'name': 'id',  'value': {'stringValue': entry_id}},
+            ])
 
     def update_entry(self, entry_id: str, update: PassportEntryUpdate) -> int:
         data = {k: v for k, v in update.model_dump().items() if v is not None}
@@ -244,91 +261,11 @@ class Itineraries(BaseModel):
         """
         return self.db.query(sql, [{'name': 'uid', 'value': {'stringValue': clerk_user_id}}])
 
-    def create_itinerary(self, clerk_user_id: str, name: str) -> str:
-        return self.db.insert('itineraries', {'clerk_user_id': clerk_user_id, 'name': name}, returning='id')
+    def create_itinerary(self, clerk_user_id: str, name: str, list_type: str = 'trip') -> str:
+        return self.db.insert('itineraries', {'clerk_user_id': clerk_user_id, 'name': name, 'list_type': list_type}, returning='id')
 
     def delete_itinerary(self, itinerary_id: str) -> int:
         return self.db.delete('itineraries', "id = :id::uuid", {'id': itinerary_id})
-
-
-class WishlistItems(BaseModel):
-    table_name = 'wishlist_items'
-
-    def find_by_user(self, clerk_user_id: str) -> List[Dict]:
-        sql = """
-            SELECT wi.*,
-                   d.description  AS dish_description,
-                   d.cuisine_type,
-                   d.tags,
-                   d.rank         AS dish_rank
-            FROM wishlist_items wi
-            LEFT JOIN dishes d ON wi.dish_id = d.id
-            WHERE wi.clerk_user_id = :uid
-            ORDER BY wi.created_at DESC
-        """
-        return self.db.query(sql, [{'name': 'uid', 'value': {'stringValue': clerk_user_id}}])
-
-    def find_by_user_and_dish(self, clerk_user_id: str, dish_id: str) -> Optional[Dict]:
-        sql = "SELECT * FROM wishlist_items WHERE clerk_user_id = :uid AND dish_id = :dish_id::uuid"
-        return self.db.query_one(sql, [
-            {'name': 'uid', 'value': {'stringValue': clerk_user_id}},
-            {'name': 'dish_id', 'value': {'stringValue': dish_id}},
-        ])
-
-    def find_by_user_and_category(self, clerk_user_id: str, dish_name: str, city_name: str) -> Optional[Dict]:
-        sql = """SELECT * FROM wishlist_items
-                 WHERE clerk_user_id = :uid AND dish_id IS NULL
-                   AND dish_name = :dish_name AND city_name = :city_name"""
-        return self.db.query_one(sql, [
-            {'name': 'uid',       'value': {'stringValue': clerk_user_id}},
-            {'name': 'dish_name', 'value': {'stringValue': dish_name}},
-            {'name': 'city_name', 'value': {'stringValue': city_name}},
-        ])
-
-    def create_item(self, clerk_user_id: str, item: 'WishlistItemCreate', dish_name: str, city_name: str, country: str) -> str:
-        restaurant_ids = [item.restaurant_id] if item.restaurant_id else []
-        data: Dict = {
-            'clerk_user_id': clerk_user_id,
-            'dish_name': dish_name,
-            'city_name': city_name,
-            'country': country,
-            'restaurant_ids': restaurant_ids,
-        }
-        if item.dish_id:
-            data['dish_id'] = item.dish_id
-        if item.notes:
-            data['notes'] = item.notes
-        return self.db.insert('wishlist_items', data, returning='id')
-
-    def append_restaurant(self, item_id: str, restaurant_id: str) -> None:
-        sql = """
-            UPDATE wishlist_items
-            SET restaurant_ids = restaurant_ids || jsonb_build_array(:rid)
-            WHERE id = :id::uuid
-              AND NOT (restaurant_ids @> jsonb_build_array(:rid))
-        """
-        self.db.execute(sql, [
-            {'name': 'rid', 'value': {'stringValue': restaurant_id}},
-            {'name': 'id',  'value': {'stringValue': item_id}},
-        ])
-
-    def remove_restaurant(self, item_id: str, restaurant_id: str) -> None:
-        sql = """
-            UPDATE wishlist_items
-            SET restaurant_ids = (
-                SELECT COALESCE(jsonb_agg(val), '[]'::jsonb)
-                FROM jsonb_array_elements_text(restaurant_ids) AS val
-                WHERE val <> :rid
-            )
-            WHERE id = :id::uuid
-        """
-        self.db.execute(sql, [
-            {'name': 'rid', 'value': {'stringValue': restaurant_id}},
-            {'name': 'id',  'value': {'stringValue': item_id}},
-        ])
-
-    def delete_item(self, item_id: str) -> int:
-        return self.db.delete('wishlist_items', "id = :id::uuid", {'id': item_id})
 
 
 class ItineraryItems(BaseModel):
@@ -531,7 +468,6 @@ class Database:
         self.passport = PassportEntries(self.client)
         self.itineraries = Itineraries(self.client)
         self.itinerary = ItineraryItems(self.client)
-        self.wishlist = WishlistItems(self.client)
         self.jobs = Jobs(self.client)
 
     def execute_raw(self, sql: str, parameters: List[Dict] = None) -> Dict:

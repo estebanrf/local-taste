@@ -95,7 +95,6 @@ export default function Explore() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
-  const [wishlistDishIds, setWishlistDishIds] = useState<Set<string>>(new Set());
   const [savedRestaurantIds, setSavedRestaurantIds] = useState<Set<string>>(new Set());
 
   // Save-to modal state
@@ -107,10 +106,10 @@ export default function Explore() {
     restaurantId?: string;
   } | null>(null);
   const [saveNotes, setSaveNotes] = useState("");
-  const [saveDestination, setSaveDestination] = useState<"wishlist" | "trip">("wishlist");
   const [selectedItineraryId, setSelectedItineraryId] = useState<string>("");
-  const [newTripName, setNewTripName] = useState("");
-  const [itineraries, setItineraries] = useState<{id: string; name: string}[]>([]);
+  const [newListName, setNewListName] = useState("");
+  const [newListType, setNewListType] = useState<"trip" | "wishlist" | "visited">("wishlist");
+  const [itineraries, setItineraries] = useState<{id: string; name: string; list_type: string}[]>([]);
   const [saving, setSaving] = useState(false);
 
   // Load user prefs + itinerary dish IDs + itineraries once auth ready
@@ -118,11 +117,10 @@ export default function Explore() {
     if (!isUserLoaded) return;
     getToken().then(async token => {
       if (!token) return;
-      const [userRes, itineraryRes, itinerariesRes, wishlistRes] = await Promise.all([
+      const [userRes, itineraryRes, itinerariesRes] = await Promise.all([
         fetch(`${API_URL}/api/user`,        { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/itinerary`,   { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/itineraries`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/wishlist`,    { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (userRes.ok) {
         const data = await userRes.json();
@@ -135,10 +133,6 @@ export default function Explore() {
       if (itinerariesRes.ok) {
         const data = await itinerariesRes.json();
         setItineraries(data.itineraries || []);
-      }
-      if (wishlistRes.ok) {
-        const data = await wishlistRes.json();
-        setWishlistDishIds(new Set((data.items || []).filter((i: {dish_id: string | null}) => i.dish_id).map((i: {dish_id: string}) => i.dish_id)));
       }
     }).catch(() => { /* silent */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -323,9 +317,9 @@ export default function Explore() {
     const cCountry = overrideCountry ?? city?.country ?? countryInput;
     if (!dishName || !cName || !cCountry) return;
     setSaveNotes("");
-    setSaveDestination("wishlist");
     setSelectedItineraryId(itineraries[0]?.id ?? "");
-    setNewTripName("");
+    setNewListName("");
+    setNewListType("wishlist");
     setSaveModal({ dishId: dish?.id ?? null, dishName, cityName: cName, country: cCountry, restaurantId });
   };
 
@@ -340,44 +334,31 @@ export default function Explore() {
         ? { dish_id: saveModal.dishId, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined }
         : { dish_name: dbDishName, city_name: saveModal.cityName, country: saveModal.country, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined };
 
-      if (saveDestination === "wishlist") {
-        const res = await fetch(`${API_URL}/api/wishlist`, {
+      let itineraryId = selectedItineraryId;
+
+      if (!itineraryId) {
+        const name = newListName.trim() || (newListType === "wishlist" ? "Wishlist" : newListType === "visited" ? "Visited" : "My Trip");
+        const createRes = await fetch(`${API_URL}/api/itineraries`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify(baseBody),
+          body: JSON.stringify({ name, list_type: newListType }),
         });
-        if (!res.ok) throw new Error(await res.text());
-        if (saveModal.dishId) setWishlistDishIds(prev => new Set([...prev, saveModal.dishId!]));
-        if (saveModal.restaurantId) setSavedRestaurantIds(prev => new Set([...prev, saveModal.restaurantId!]));
-        showToast("success", `"${saveModal.dishName}" added to your Wishlist!`);
-      } else {
-        let itineraryId = selectedItineraryId;
-
-        if (!itineraryId) {
-          // Create a new trip
-          const name = newTripName.trim() || "My Trip";
-          const createRes = await fetch(`${API_URL}/api/itineraries`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ name }),
-          });
-          if (!createRes.ok) throw new Error(await createRes.text());
-          const created = await createRes.json();
-          itineraryId = created.id;
-          setItineraries(prev => [...prev, { id: created.id, name: created.name }]);
-        }
-
-        const res = await fetch(`${API_URL}/api/itineraries/${itineraryId}/items`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify(baseBody),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        if (saveModal.dishId) setItineraryDishIds(prev => new Set([...prev, saveModal.dishId!]));
-        if (saveModal.restaurantId) setSavedRestaurantIds(prev => new Set([...prev, saveModal.restaurantId!]));
-        const tripName = itineraries.find(t => t.id === itineraryId)?.name ?? (newTripName.trim() || "My Trip");
-        showToast("success", `"${saveModal.dishName}" added to "${tripName}"!`);
+        if (!createRes.ok) throw new Error(await createRes.text());
+        const created = await createRes.json();
+        itineraryId = created.id;
+        setItineraries(prev => [...prev, { id: created.id, name: created.name, list_type: created.list_type }]);
       }
+
+      const res = await fetch(`${API_URL}/api/itineraries/${itineraryId}/items`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(baseBody),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      if (saveModal.dishId) setItineraryDishIds(prev => new Set([...prev, saveModal.dishId!]));
+      if (saveModal.restaurantId) setSavedRestaurantIds(prev => new Set([...prev, saveModal.restaurantId!]));
+      const listName = itineraries.find(t => t.id === itineraryId)?.name ?? (newListName.trim() || "list");
+      showToast("success", `"${saveModal.dishName}" added to "${listName}"!`);
 
       setSaveModal(null);
     } catch {
@@ -715,13 +696,13 @@ export default function Explore() {
                           <button
                             onClick={(e) => { e.stopPropagation(); openSaveModal(dish); }}
                             className={`text-xs px-4 py-2 rounded-lg transition-colors text-center ${
-                              wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id)
+                              itineraryDishIds.has(dish.id)
                                 ? "bg-green-50 text-green-700 border border-green-200 hover:bg-green-100"
                                 : "border border-gray-200 text-gray-500 hover:border-amber-400 hover:text-amber-600"
                             }`}
-                            title="Save to wishlist or trip"
+                            title="Save to list"
                           >
-                            {wishlistDishIds.has(dish.id) || itineraryDishIds.has(dish.id) ? "✓ Saved" : "🗺️ Save"}
+                            {itineraryDishIds.has(dish.id) ? "✓ Saved" : "🗺️ Save"}
                           </button>
                         </div>
                       </div>
@@ -878,42 +859,14 @@ export default function Explore() {
                 {" · "}{saveModal.cityName}, {saveModal.country}
               </p>
 
-              {/* Destination toggle */}
-              <div className="grid grid-cols-2 gap-2 mb-5">
-                <button
-                  type="button"
-                  onClick={() => setSaveDestination("wishlist")}
-                  className={`flex flex-col items-center gap-1 py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
-                    saveDestination === "wishlist"
-                      ? "border-primary bg-purple-50 text-primary"
-                      : "border-gray-200 text-gray-600 hover:border-purple-200"
-                  }`}
-                >
-                  <span className="text-xl">⭐</span>
-                  <span>Wishlist</span>
-                  <span className="text-xs font-normal text-gray-400">Plan for later</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSaveDestination("trip")}
-                  className={`flex flex-col items-center gap-1 py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
-                    saveDestination === "trip"
-                      ? "border-primary bg-purple-50 text-primary"
-                      : "border-gray-200 text-gray-600 hover:border-purple-200"
-                  }`}
-                >
-                  <span className="text-xl">🗺️</span>
-                  <span>A Trip</span>
-                  <span className="text-xs font-normal text-gray-400">Add to itinerary</span>
-                </button>
-              </div>
-
-              {/* Trip picker */}
-              {saveDestination === "trip" && (
-                <div className="mb-4">
-                  {itineraries.length > 0 ? (
-                    <div className="space-y-2 mb-3">
-                      {itineraries.map(t => (
+              {/* List picker */}
+              <div className="mb-4">
+                {itineraries.length > 0 ? (
+                  <div className="space-y-1.5 mb-3">
+                    {itineraries.map(t => {
+                      const icons: Record<string, string> = { trip: "✈️", wishlist: "⭐", visited: "📖" };
+                      const icon = icons[t.list_type] ?? "📋";
+                      return (
                         <button
                           key={t.id}
                           type="button"
@@ -924,35 +877,53 @@ export default function Explore() {
                               : "border-gray-200 text-gray-700 hover:border-purple-200"
                           }`}
                         >
-                          <span>🗺️</span> {t.name}
+                          <span>{icon}</span> {t.name}
                           {selectedItineraryId === t.id && <span className="ml-auto text-xs">✓</span>}
                         </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedItineraryId("")}
+                      className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                        selectedItineraryId === ""
+                          ? "border-primary bg-purple-50 text-primary font-semibold"
+                          : "border-gray-200 text-gray-500 hover:border-purple-200"
+                      }`}
+                    >
+                      <span>＋</span> New list…
+                      {selectedItineraryId === "" && <span className="ml-auto text-xs">✓</span>}
+                    </button>
+                  </div>
+                ) : null}
+                {(selectedItineraryId === "" || itineraries.length === 0) && (
+                  <div className="space-y-2">
+                    <div className="flex gap-1">
+                      {([["wishlist","⭐","Wishlist"],["trip","✈️","Trip"],["visited","📖","Visited"]] as const).map(([type, icon, label]) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setNewListType(type)}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                            newListType === type
+                              ? "border-primary bg-purple-50 text-primary"
+                              : "border-gray-200 text-gray-500 hover:border-purple-200"
+                          }`}
+                        >
+                          {icon} {label}
+                        </button>
                       ))}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedItineraryId("")}
-                        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                          selectedItineraryId === ""
-                            ? "border-primary bg-purple-50 text-primary font-semibold"
-                            : "border-gray-200 text-gray-500 hover:border-purple-200"
-                        }`}
-                      >
-                        <span>＋</span> New trip…
-                        {selectedItineraryId === "" && <span className="ml-auto text-xs">✓</span>}
-                      </button>
                     </div>
-                  ) : null}
-                  {(selectedItineraryId === "" || itineraries.length === 0) && (
                     <input
                       type="text"
-                      value={newTripName}
-                      onChange={e => setNewTripName(e.target.value)}
-                      placeholder="Trip name (e.g. Tokyo 2026)"
+                      value={newListName}
+                      onChange={e => setNewListName(e.target.value)}
+                      placeholder={newListType === "wishlist" ? "e.g. Japan wishlist" : newListType === "visited" ? "e.g. Barcelona 2024" : "e.g. Tokyo 2026"}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     />
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
 
               {/* Notes */}
               <div className="mb-5">
@@ -974,7 +945,7 @@ export default function Explore() {
                   disabled={saving}
                   className="flex-1 px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold transition-colors"
                 >
-                  {saving ? "Saving…" : saveDestination === "wishlist" ? "⭐ Add to Wishlist" : "🗺️ Add to Trip"}
+                  {saving ? "Saving…" : "＋ Save to list"}
                 </button>
                 <button
                   onClick={() => setSaveModal(null)}

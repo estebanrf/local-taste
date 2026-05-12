@@ -24,9 +24,18 @@ const dishKeyColor = (key: string): string => {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type ListType = "trip" | "wishlist" | "visited";
+
+const LIST_TYPE_META: Record<ListType, { icon: string; label: string; emptyHint: string }> = {
+  trip:     { icon: "✈️",  label: "Trip",     emptyHint: "Add dishes from Explore to plan your trip." },
+  wishlist: { icon: "⭐",  label: "Wishlist", emptyHint: "Save dishes from Explore to try someday." },
+  visited:  { icon: "📖", label: "Visited",  emptyHint: "Log dishes you've already eaten." },
+};
+
 interface Itinerary {
   id: string;
   name: string;
+  list_type: ListType;
   item_count: number;
   created_at: string;
 }
@@ -50,19 +59,6 @@ interface ItineraryItem {
   restaurant_ids: string[];
 }
 
-interface WishlistItem {
-  id: string;
-  dish_id: string | null;
-  dish_name: string;
-  city_name: string;
-  country: string;
-  notes: string | null;
-  cuisine_type: string | null;
-  dish_description: string | null;
-  tags: string[];
-  restaurant_ids: string[];
-  created_at: string;
-}
 
 interface Restaurant {
   id: string;
@@ -91,32 +87,17 @@ export default function Plan() {
   const { getToken } = useAuth();
   const { isLoaded: isUserLoaded } = useUser();
 
-  const [activeTab, setActiveTab] = useState<"wishlist" | "trips">("wishlist");
-
   // ── Shared ────────────────────────────────────────────────────────────────
   const [passportEntries, setPassportEntries] = useState<PassportEntry[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
-  const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // ── Wishlist state ────────────────────────────────────────────────────────
-  const [selectedWishlistItem, setSelectedWishlistItem] = useState<WishlistItem | null>(null);
-  const [wishlistRestaurants, setWishlistRestaurants] = useState<Restaurant[]>([]);
-  const [foundWishlistRestaurants, setFoundWishlistRestaurants] = useState<Restaurant[]>([]);
-  const [loadingWishlistRestaurants, setLoadingWishlistRestaurants] = useState(false);
-  const [rankingWishlistRestaurants, setRankingWishlistRestaurants] = useState(false);
-  const [rankingWishlistStatus, setRankingWishlistStatus] = useState("");
-  const [collapsedCities, setCollapsedCities] = useState<Set<string>>(new Set());
-  const [confirmDeleteWishlistId, setConfirmDeleteWishlistId] = useState<string | null>(null);
-  const [tripModal, setTripModal] = useState<WishlistItem | null>(null);
-  const [selectedItineraryIds, setSelectedItineraryIds] = useState<string[]>([]);
-  const [tripModalNewName, setTripModalNewName] = useState("");
-  const [addingToTrip, setAddingToTrip] = useState(false);
-  const [markingWishlistEaten, setMarkingWishlistEaten] = useState<Set<string>>(new Set());
   const [eatenDateModal, setEatenDateModal] = useState<{ label: string; onConfirm: (date: string) => void } | null>(null);
   const [eatenDate, setEatenDate] = useState("");
 
-  // ── Trips state ───────────────────────────────────────────────────────────
+  // ── New list creation state ───────────────────────────────────────────────
+  const [newListType, setNewListType] = useState<ListType>("trip");
+
+  // ── Lists state ───────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -162,16 +143,6 @@ export default function Plan() {
     return [];
   }, [getToken]);
 
-  const loadWishlist = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
-    const res = await fetch(`${API_URL}/api/wishlist`, { headers: { Authorization: `Bearer ${token}` } });
-    if (res.ok) {
-      const data = await res.json();
-      setWishlistItems(data.items || []);
-    }
-  }, [getToken]);
-
   const loadItems = useCallback(async (itineraryId: string) => {
     setLoadingItems(true);
     setSelectedItem(null);
@@ -198,7 +169,7 @@ export default function Plan() {
 
   useEffect(() => {
     if (!isUserLoaded) return;
-    Promise.all([loadItineraries(), loadWishlist(), loadPassport()]).then(([list]) => {
+    Promise.all([loadItineraries(), loadPassport()]).then(([list]) => {
       if (list && list.length > 0) {
         setActiveId(list[0].id);
         loadItems(list[0].id);
@@ -234,258 +205,29 @@ export default function Plan() {
     return [...all.filter(r => savedIds.includes(r.id))].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0));
   };
 
-  // ── Wishlist handlers ─────────────────────────────────────────────────────
+  // ── List handlers ─────────────────────────────────────────────────────────
 
-  const openWishlistItem = async (item: WishlistItem) => {
-    setSelectedWishlistItem(item);
-    setWishlistRestaurants([]);
-    setFoundWishlistRestaurants([]);
-    setRankingWishlistRestaurants(false);
-    setRankingWishlistStatus("");
-    const savedIds = item.restaurant_ids || [];
-    if (!item.dish_id && savedIds.length === 0) return;
-    setLoadingWishlistRestaurants(true);
-    try {
-      const token = (await getToken()) ?? "";
-      setWishlistRestaurants(await fetchRestaurants(token, item.dish_id, savedIds));
-    } catch { /* silent */ } finally {
-      setLoadingWishlistRestaurants(false);
-    }
-  };
-
-  const findWishlistRestaurants = async (item: WishlistItem) => {
-    setRankingWishlistRestaurants(true);
-    setRankingWishlistStatus("Finding the best spots…");
-    try {
-      const token = await getToken();
-      const endpoint = item.dish_id ? "/api/rank-restaurants" : "/api/rank-by-category";
-      const body = item.dish_id
-        ? { dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }
-        : { category: item.dish_name, city: item.city_name, country: item.country };
-      const res = await fetch(`${API_URL}${endpoint}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { job_id } = await res.json();
-      const interval = setInterval(async () => {
-        try {
-          const t = await getToken();
-          const jr = await fetch(`${API_URL}/api/jobs/${job_id}`, { headers: { Authorization: `Bearer ${t}` } });
-          if (!jr.ok) return;
-          const job = await jr.json();
-          if (job.status === "completed") {
-            clearInterval(interval);
-            setRankingWishlistRestaurants(false);
-            setRankingWishlistStatus("");
-            const rList = ((job.restaurants_payload as Record<string, unknown>)?.restaurants as Restaurant[]) || [];
-            if (item.dish_id) {
-              const t2 = await getToken();
-              const saved = await fetchRestaurants(t2 ?? "", item.dish_id, item.restaurant_ids || []);
-              setWishlistRestaurants(saved);
-              const savedIds = new Set(saved.map(r => r.id));
-              setFoundWishlistRestaurants(rList.filter(r => !savedIds.has(r.id)).sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0)));
-            } else {
-              const savedIds = new Set(wishlistRestaurants.map(r => r.id));
-              setFoundWishlistRestaurants(rList.filter(r => !savedIds.has(r.id)).sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0)));
-            }
-          } else if (job.status === "failed") {
-            clearInterval(interval);
-            setRankingWishlistRestaurants(false);
-            setRankingWishlistStatus("");
-            showToast("error", "Failed to find restaurants.");
-          } else {
-            setRankingWishlistStatus("Searching local reviews…");
-          }
-        } catch { /* keep polling */ }
-      }, 2000);
-    } catch {
-      setRankingWishlistRestaurants(false);
-      setRankingWishlistStatus("");
-      showToast("error", "Failed to start restaurant search.");
-    }
-  };
-
-  const handleDeleteWishlistItem = async (id: string) => {
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/wishlist/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setConfirmDeleteWishlistId(null);
-      setWishlistItems(prev => prev.filter(i => i.id !== id));
-      if (selectedWishlistItem?.id === id) setSelectedWishlistItem(null);
-      showToast("success", "Removed from wishlist.");
-    } catch {
-      showToast("error", "Failed to remove.");
-    }
-  };
-
-  const handleWishlistRemoveRestaurant = async (wishlistItemId: string, restaurantId: string) => {
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_URL}/api/wishlist/${wishlistItemId}/restaurants/${restaurantId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setWishlistRestaurants(prev => prev.filter(r => r.id !== restaurantId));
-      setSelectedWishlistItem(prev => prev ? { ...prev, restaurant_ids: prev.restaurant_ids.filter(id => id !== restaurantId) } : prev);
-      setWishlistItems(prev => prev.map(i => i.id === wishlistItemId ? { ...i, restaurant_ids: i.restaurant_ids.filter(id => id !== restaurantId) } : i));
-    } catch {
-      showToast("error", "Failed to remove restaurant.");
-    }
-  };
-
-  const handleWishlistAddFound = async (restaurant: Restaurant) => {
-    if (!selectedWishlistItem) return;
-    try {
-      const token = await getToken();
-      const body = selectedWishlistItem.dish_id
-        ? { dish_id: selectedWishlistItem.dish_id, restaurant_id: restaurant.id }
-        : { dish_name: selectedWishlistItem.dish_name, city_name: selectedWishlistItem.city_name, country: selectedWishlistItem.country, restaurant_id: restaurant.id };
-      const res = await fetch(`${API_URL}/api/wishlist`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setFoundWishlistRestaurants(prev => prev.filter(r => r.id !== restaurant.id));
-      setWishlistRestaurants(prev => [...prev, restaurant]);
-      setSelectedWishlistItem(prev => prev ? { ...prev, restaurant_ids: [...prev.restaurant_ids, restaurant.id] } : prev);
-      setWishlistItems(prev => prev.map(i => i.id === selectedWishlistItem.id ? { ...i, restaurant_ids: [...i.restaurant_ids, restaurant.id] } : i));
-    } catch {
-      showToast("error", "Failed to add restaurant.");
-    }
-  };
-
-  const handleMarkWishlistDishEaten = (item: WishlistItem) => {
-    if (!item.dish_id || markingWishlistEaten.has(item.dish_id)) return;
-    setEatenDate(new Date().toISOString().slice(0, 10));
-    setEatenDateModal({
-      label: `When did you try "${item.dish_name}"?`,
-      onConfirm: async (tastedAt: string) => {
-        setEatenDateModal(null);
-        setMarkingWishlistEaten(prev => new Set(prev).add(item.dish_id!));
-        try {
-          const token = await getToken();
-          const res = await fetch(`${API_URL}/api/passport`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ dish_id: item.dish_id, tasted_at: tastedAt }),
-          });
-          if (res.ok) { showToast("success", `"${item.dish_name}" added to your passport!`); await loadPassport(); }
-          else showToast("error", "Failed to mark as eaten.");
-        } catch { showToast("error", "Failed to mark as eaten."); }
-        finally { setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(item.dish_id!); return n; }); }
-      },
-    });
-  };
-
-  const handleMarkWishlistRestaurantEaten = (restaurant: Restaurant) => {
-    if (!selectedWishlistItem?.dish_id || markingWishlistEaten.has(restaurant.id)) return;
-    setEatenDate(new Date().toISOString().slice(0, 10));
-    setEatenDateModal({
-      label: `When did you visit ${restaurant.name}?`,
-      onConfirm: async (tastedAt: string) => {
-        setEatenDateModal(null);
-        setMarkingWishlistEaten(prev => new Set(prev).add(restaurant.id));
-        try {
-          const token = await getToken();
-          const res = await fetch(`${API_URL}/api/passport`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ dish_id: selectedWishlistItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt }),
-          });
-          if (res.ok) { showToast("success", `"${selectedWishlistItem.dish_name}" at ${restaurant.name} added to your passport!`); await loadPassport(); }
-          else showToast("error", "Failed to mark as eaten.");
-        } catch { showToast("error", "Failed to mark as eaten."); }
-        finally { setMarkingWishlistEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; }); }
-      },
-    });
-  };
-
-  const handleAddToTrip = async () => {
-    if (!tripModal) return;
-    const hasNew = tripModalNewName.trim().length > 0;
-    if (selectedItineraryIds.length === 0 && !hasNew) return;
-    setAddingToTrip(true);
-    try {
-      const token = await getToken();
-      const targetIds = [...selectedItineraryIds];
-      if (hasNew) {
-        const res = await fetch(`${API_URL}/api/itineraries`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ name: tripModalNewName.trim() }),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const created = await res.json();
-        targetIds.push(created.id);
-        setItineraries(prev => [...prev, { id: created.id, name: created.name, item_count: 0, created_at: new Date().toISOString() }]);
-      }
-      const baseBody = tripModal.dish_id
-        ? { dish_id: tripModal.dish_id }
-        : { dish_name: tripModal.dish_name, city_name: tripModal.city_name, country: tripModal.country };
-      const restaurantIds = tripModal.restaurant_ids || [];
-      await Promise.all(targetIds.map(async (id) => {
-        const firstBody = restaurantIds.length > 0
-          ? { ...baseBody, restaurant_id: restaurantIds[0] }
-          : baseBody;
-        await fetch(`${API_URL}/api/itineraries/${id}/items`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify(firstBody),
-        });
-        for (const rid of restaurantIds.slice(1)) {
-          await fetch(`${API_URL}/api/itineraries/${id}/items`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ ...baseBody, restaurant_id: rid }),
-          });
-        }
-      }));
-      const names = [
-        ...selectedItineraryIds.map(id => itineraries.find(t => t.id === id)?.name ?? id),
-        ...(hasNew ? [tripModalNewName.trim()] : []),
-      ].join(", ");
-      showToast("success", `"${tripModal.dish_name}" added to ${names}!`);
-      setTripModal(null);
-      setSelectedItineraryIds([]);
-      setTripModalNewName("");
-    } catch {
-      showToast("error", "Failed to add to trip.");
-    } finally {
-      setAddingToTrip(false);
-    }
-  };
-
-  // ── Trips handlers ────────────────────────────────────────────────────────
-
-  const handleCreateTrip = async () => {
+  const handleCreateList = async () => {
     const name = newTripName.trim();
-    if (!name) { showToast("error", "Please enter a trip name"); return; }
+    if (!name) { showToast("error", "Please enter a name"); return; }
     setCreatingTrip(true);
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/itineraries`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, list_type: newListType }),
       });
       if (!res.ok) throw new Error(await res.text());
       const created = await res.json();
-      const newTrip: Itinerary = { id: created.id, name: created.name, item_count: 0, created_at: new Date().toISOString() };
-      setItineraries(prev => [...prev, newTrip]);
+      const newList: Itinerary = { id: created.id, name: created.name, list_type: created.list_type ?? newListType, item_count: 0, created_at: new Date().toISOString() };
+      setItineraries(prev => [...prev, newList]);
       setNewTripName("");
       setShowNewTripInput(false);
       switchTrip(created.id);
-      showToast("success", `Trip "${created.name}" created!`);
+      showToast("success", `"${created.name}" created!`);
     } catch {
-      showToast("error", "Failed to create trip.");
+      showToast("error", "Failed to create list.");
     } finally {
       setCreatingTrip(false);
     }
@@ -506,7 +248,7 @@ export default function Plan() {
         if (remaining.length > 0) { switchTrip(remaining[0].id); }
         else { setActiveId(null); setItems([]); }
       }
-      showToast("success", "Trip deleted.");
+      showToast("success", "List deleted.");
     } catch {
       showToast("error", "Failed to delete trip.");
     }
@@ -700,7 +442,7 @@ export default function Plan() {
           const res = await fetch(`${API_URL}/api/passport`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ dish_id: item.dish_id, tasted_at: tastedAt }),
+            body: JSON.stringify({ dish_id: item.dish_id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }),
           });
           if (res.ok) {
             showToast("success", `"${item.dish_name}" added to your passport!`);
@@ -726,12 +468,14 @@ export default function Plan() {
           const res = await fetch(`${API_URL}/api/passport`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ dish_id: selectedItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt }),
+            body: JSON.stringify({ dish_id: selectedItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }),
           });
           if (res.ok) {
             showToast("success", `"${selectedItem.dish_name}" at ${restaurant.name} added to your passport!`);
             await loadPassport();
-            setSelectedItem(prev => prev ? { ...prev, eaten_count: (prev.eaten_count || 0) + 1 } : prev);
+            const updatedCount = (selectedItem.eaten_count || 0) + 1;
+            setSelectedItem(prev => prev ? { ...prev, eaten_count: updatedCount } : prev);
+            setItems(prev => prev.map(i => i.id === selectedItem.id ? { ...i, eaten_count: updatedCount } : i));
           } else showToast("error", "Failed to mark as eaten.");
         } catch { showToast("error", "Failed to mark as eaten."); }
         finally { setMarkingEaten(prev => { const n = new Set(prev); n.delete(restaurant.id); return n; }); }
@@ -820,7 +564,7 @@ export default function Plan() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-dark">🗺️ Plan</h1>
-              <p className="text-gray-600 mt-1">Your wishlist and upcoming trips.</p>
+              <p className="text-gray-600 mt-1">Your lists — wishlists, trips, and visited favorites.</p>
             </div>
             <Link href="/explore">
               <button className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 font-medium transition-colors">
@@ -829,324 +573,94 @@ export default function Plan() {
             </Link>
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-2 mb-6">
-            <button
-              onClick={() => setActiveTab("wishlist")}
-              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === "wishlist" ? "bg-primary text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-primary hover:text-primary"
-              }`}
-            >
-              ⭐ Wishlist {wishlistItems.length > 0 ? `(${wishlistItems.length})` : ""}
-            </button>
-            <button
-              onClick={() => setActiveTab("trips")}
-              className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === "trips" ? "bg-primary text-white" : "bg-white border border-gray-200 text-gray-600 hover:border-primary hover:text-primary"
-              }`}
-            >
-              ✈️ Trips {itineraries.length > 0 ? `(${itineraries.length})` : ""}
-            </button>
-          </div>
-
           {loading ? (
             <div className="text-center py-16 text-gray-400">Loading…</div>
           ) : (
             <>
-              {/* ── WISHLIST TAB ─────────────────────────────────────────── */}
-              {activeTab === "wishlist" && (
-                wishlistItems.length === 0 ? (
-                  <div className="bg-white rounded-lg shadow p-12 text-center">
-                    <div className="text-5xl mb-4">⭐</div>
-                    <h2 className="text-xl font-semibold text-dark mb-2">Your wishlist is empty</h2>
-                    <p className="text-gray-500 mb-6">Save dishes from Explore to try later.</p>
-                    <Link href="/explore">
-                      <button className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 font-semibold">
-                        Explore a City
+              {/* ── LIST SELECTOR ────────────────────────────────────────── */}
+              <div className="flex items-center gap-2 mb-6 flex-wrap">
+                {itineraries.map(list => {
+                  const meta = LIST_TYPE_META[list.list_type] ?? LIST_TYPE_META.trip;
+                  return (
+                    <div key={list.id} className="flex items-center gap-1">
+                      <button
+                        onClick={() => switchTrip(list.id)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                          activeId === list.id
+                            ? "bg-primary text-white shadow-sm"
+                            : "bg-white text-gray-600 border border-gray-200 hover:border-primary hover:text-primary"
+                        }`}
+                      >
+                        {meta.icon} {list.name}
+                        <span className={`ml-1.5 text-xs ${activeId === list.id ? "opacity-70" : "text-gray-400"}`}>
+                          ({list.item_count})
+                        </span>
                       </button>
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Left: dish list grouped by city */}
-                    <div className="lg:col-span-2 space-y-4">
-                      {(() => {
-                        const groups: { key: string; city: string; country: string; items: WishlistItem[] }[] = [];
-                        wishlistItems.forEach(item => {
-                          const key = `${item.city_name}||${item.country}`;
-                          const existing = groups.find(g => g.key === key);
-                          if (existing) existing.items.push(item);
-                          else groups.push({ key, city: item.city_name, country: item.country, items: [item] });
-                        });
-                        return groups.map(group => {
-                          const isCollapsed = collapsedCities.has(group.key);
-                          const eatenInGroup = group.items.filter(i => i.dish_id && eatenDishIds.has(i.dish_id)).length;
-                          return (
-                            <div key={group.key}>
-                              <button
-                                onClick={() => setCollapsedCities(prev => {
-                                  const next = new Set(prev);
-                                  next.has(group.key) ? next.delete(group.key) : next.add(group.key);
-                                  return next;
-                                })}
-                                className="w-full flex items-center gap-3 px-1 py-2 text-left group"
-                              >
-                                <span className="text-base font-bold text-dark">📍 {group.city}, {group.country}</span>
-                                <span className="text-xs text-gray-400 font-normal">
-                                  {group.items.length} dish{group.items.length !== 1 ? "es" : ""}
-                                  {eatenInGroup > 0 && ` · ${eatenInGroup} tried`}
-                                </span>
-                                <span className="ml-auto text-gray-400 text-xs group-hover:text-gray-600 transition-colors">
-                                  {isCollapsed ? "▶" : "▼"}
-                                </span>
-                              </button>
-                              {!isCollapsed && (
-                                <div className="space-y-2">
-                                  {group.items.map(item => {
-                                    const isSelected = selectedWishlistItem?.id === item.id;
-                                    const alreadyEaten = item.dish_id ? eatenDishIds.has(item.dish_id) : false;
-                                    return (
-                                      <div
-                                        key={item.id}
-                                        onClick={() => openWishlistItem(item)}
-                                        className={`bg-white rounded-xl shadow-sm border cursor-pointer transition-all hover:shadow-md flex overflow-hidden ${
-                                          isSelected ? "ring-2 ring-primary border-transparent" : "border-gray-100"
-                                        }`}
-                                      >
-                                        <div className={`w-1.5 flex-shrink-0 ${alreadyEaten ? "bg-green-400" : "bg-amber-300"}`} />
-                                        <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                              <span className="font-semibold text-dark text-sm">{item.dish_name}</span>
-                                              {item.cuisine_type && (
-                                                <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">{item.cuisine_type}</span>
-                                              )}
-                                              {alreadyEaten && (
-                                                <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-medium">✓ In passport</span>
-                                              )}
-                                            </div>
-                                            {item.dish_description && (
-                                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{item.dish_description}</p>
-                                            )}
-                                            {item.notes && (
-                                              <p className="text-xs text-amber-700 mt-0.5 italic">📝 {item.notes}</p>
-                                            )}
-                                          </div>
-                                          <div className="flex-shrink-0 flex flex-col gap-1 items-end">
-                                            {item.dish_id && !alreadyEaten && (
-                                              <button
-                                                onClick={e => { e.stopPropagation(); handleMarkWishlistDishEaten(item); }}
-                                                disabled={markingWishlistEaten.has(item.dish_id!)}
-                                                className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
-                                              >
-                                                {markingWishlistEaten.has(item.dish_id!) ? "Saving…" : "✓ Eaten"}
-                                              </button>
-                                            )}
-                                            <button
-                                              onClick={e => { e.stopPropagation(); setSelectedItineraryIds([]); setTripModalNewName(""); setTripModal(item); }}
-                                              className="text-xs px-2.5 py-1 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary transition-colors whitespace-nowrap"
-                                            >
-                                              ✈️ Add to trip
-                                            </button>
-                                            <button
-                                              onClick={e => { e.stopPropagation(); setConfirmDeleteWishlistId(item.id); }}
-                                              className="text-xs text-red-300 hover:text-red-500 transition-colors px-1"
-                                              title="Remove from wishlist"
-                                            >✕</button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        });
-                      })()}
+                      <button
+                        onClick={() => setConfirmDeleteTripId(list.id)}
+                        className="text-red-400 hover:text-red-600 text-xs px-1 transition-colors"
+                        title="Delete list"
+                      >✕</button>
                     </div>
-
-                    {/* Right: wishlist restaurant panel */}
-                    <div className="lg:col-span-1">
-                      {selectedWishlistItem ? (
-                        <div className="bg-white rounded-xl shadow p-5 sticky top-6">
-                          <div className="mb-4 pb-4 border-b border-gray-100">
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <h3 className="font-bold text-dark text-lg leading-snug">{selectedWishlistItem.dish_name}</h3>
-                              <button onClick={() => setSelectedWishlistItem(null)} className="text-gray-300 hover:text-gray-500 flex-shrink-0">✕</button>
-                            </div>
-                            <p className="text-xs text-gray-400 mb-2">📍 {selectedWishlistItem.city_name}, {selectedWishlistItem.country}</p>
-                            {selectedWishlistItem.dish_description && (
-                              <p className="text-sm text-gray-600 leading-relaxed">{selectedWishlistItem.dish_description}</p>
-                            )}
-                            {selectedWishlistItem.notes && (
-                              <p className="text-xs text-amber-700 mt-2 italic">📝 {selectedWishlistItem.notes}</p>
-                            )}
-                            {(selectedWishlistItem.tags || []).length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                {selectedWishlistItem.tags.slice(0, 4).map(tag => (
-                                  <span key={tag} className="px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full text-xs">{tag}</span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center justify-between mb-3">
-                            <h4 className="text-sm font-semibold text-dark">Where to eat</h4>
-                            {!rankingWishlistRestaurants && (
-                              <button onClick={() => findWishlistRestaurants(selectedWishlistItem!)} className="text-xs text-primary hover:underline">
-                                🔍 Find more
-                              </button>
-                            )}
-                          </div>
-                          {loadingWishlistRestaurants ? (
-                            <p className="text-xs text-gray-400 text-center py-4">Loading…</p>
-                          ) : (
-                            <div className="space-y-2">
-                              {wishlistRestaurants.length === 0 && foundWishlistRestaurants.length === 0 && !rankingWishlistRestaurants && (
-                                <p className="text-xs text-gray-400 text-center py-4">No restaurants saved yet. Click &ldquo;Find more&rdquo; to search.</p>
-                              )}
-                              {wishlistRestaurants.map(r => {
-                                const eaten = isRestaurantEaten(r.id);
-                                return (
-                                  <div key={r.id} className={`rounded-lg border p-3 transition-all ${eaten ? "border-green-200 bg-green-50" : "border-gray-100 hover:border-primary"}`}>
-                                    <div className="flex items-start justify-between gap-2 mb-1">
-                                      <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
-                                      {r.google_rating && <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>}
-                                    </div>
-                                    {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
-                                    {r.rank_rationale && <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>}
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {eaten ? (
-                                        <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
-                                      ) : selectedWishlistItem?.dish_id ? (
-                                        <button onClick={() => handleMarkWishlistRestaurantEaten(r)} disabled={markingWishlistEaten.has(r.id)}
-                                          className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors">
-                                          {markingWishlistEaten.has(r.id) ? "Saving…" : "✓ Already Been"}
-                                        </button>
-                                      ) : null}
-                                      {r.google_maps_url && (
-                                        <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">📍 Maps</a>
-                                      )}
-                                      <button onClick={() => handleWishlistRemoveRestaurant(selectedWishlistItem!.id, r.id)}
-                                        className="ml-auto text-xs text-red-300 hover:text-red-500 transition-colors" title="Remove">✕</button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                              {rankingWishlistRestaurants && (
-                                <div className="text-center py-4">
-                                  <div className="text-2xl mb-2 animate-pulse">🌍</div>
-                                  <p className="text-xs text-gray-500 mb-1">{rankingWishlistStatus}</p>
-                                  <p className="text-xs text-gray-400">Usually 20–40 seconds…</p>
-                                </div>
-                              )}
-                              {foundWishlistRestaurants.length > 0 && (
-                                <>
-                                  <div className="flex items-center gap-2 my-3">
-                                    <div className="flex-1 h-px bg-gray-100" />
-                                    <span className="text-xs text-gray-400 font-medium">Found nearby</span>
-                                    <div className="flex-1 h-px bg-gray-100" />
-                                  </div>
-                                  {foundWishlistRestaurants.map(r => (
-                                    <div key={r.id} className="rounded-lg border border-dashed border-gray-200 p-3 bg-gray-50">
-                                      <div className="flex items-start justify-between gap-2 mb-1">
-                                        <p className="font-medium text-dark text-sm leading-snug">{r.name}</p>
-                                        {r.google_rating && <span className="text-xs text-violet-600 font-semibold flex-shrink-0">★ {r.google_rating}</span>}
-                                      </div>
-                                      {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
-                                      {r.rank_rationale && <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>}
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <button onClick={() => handleWishlistAddFound(r)}
-                                          className="text-xs px-3 py-1 bg-primary text-white rounded-lg hover:bg-purple-700 font-medium transition-colors">
-                                          ＋ Add
-                                        </button>
-                                        {r.google_maps_url && (
-                                          <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">📍 Maps</a>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="bg-white rounded-xl shadow p-8 text-center text-gray-400">
-                          <div className="text-4xl mb-3">👆</div>
-                          <p className="text-sm">Click a dish to see where to eat it</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              )}
-
-              {/* ── TRIPS TAB ────────────────────────────────────────────── */}
-              {activeTab === "trips" && (
-                <>
-                  {/* Trip selector row */}
-                  <div className="flex items-center gap-2 mb-6 flex-wrap">
-                    {itineraries.map(trip => (
-                      <div key={trip.id} className="flex items-center gap-1">
+                  );
+                })}
+                {showNewTripInput ? (
+                  <div className="flex flex-col gap-2 bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                    {/* Type picker */}
+                    <div className="flex gap-1">
+                      {(Object.entries(LIST_TYPE_META) as [ListType, typeof LIST_TYPE_META[ListType]][]).map(([type, meta]) => (
                         <button
-                          onClick={() => switchTrip(trip.id)}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            activeId === trip.id
-                              ? "bg-primary text-white shadow-sm"
-                              : "bg-white text-gray-600 border border-gray-200 hover:border-primary hover:text-primary"
+                          key={type}
+                          type="button"
+                          onClick={() => setNewListType(type)}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                            newListType === type
+                              ? "border-primary bg-purple-50 text-primary"
+                              : "border-gray-200 text-gray-500 hover:border-purple-200"
                           }`}
                         >
-                          {trip.name}
-                          <span className={`ml-1.5 text-xs ${activeId === trip.id ? "opacity-70" : "text-gray-400"}`}>
-                            ({trip.item_count})
-                          </span>
+                          {meta.icon} {meta.label}
                         </button>
-                        <button
-                          onClick={() => setConfirmDeleteTripId(trip.id)}
-                          className="text-red-400 hover:text-red-600 text-xs px-1 transition-colors"
-                          title="Delete trip"
-                        >✕</button>
-                      </div>
-                    ))}
-                    {showNewTripInput ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={newTripName}
-                          onChange={e => setNewTripName(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter") handleCreateTrip(); if (e.key === "Escape") { setShowNewTripInput(false); setNewTripName(""); } }}
-                          placeholder="Trip name…"
-                          autoFocus
-                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary w-40"
-                        />
-                        <button onClick={handleCreateTrip} disabled={creatingTrip}
-                          className="px-3 py-2 bg-primary text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-gray-300 transition-colors">
-                          {creatingTrip ? "…" : "Create"}
-                        </button>
-                        <button onClick={() => { setShowNewTripInput(false); setNewTripName(""); }}
-                          className="px-3 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm hover:border-gray-400">
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setShowNewTripInput(true)}
-                        className="px-4 py-2 border-2 border-dashed border-gray-300 text-gray-500 rounded-lg text-sm hover:border-primary hover:text-primary transition-all"
-                      >
-                        + New trip
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newTripName}
+                        onChange={e => setNewTripName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleCreateList(); if (e.key === "Escape") { setShowNewTripInput(false); setNewTripName(""); } }}
+                        placeholder={`${LIST_TYPE_META[newListType].label} name…`}
+                        autoFocus
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary w-40"
+                      />
+                      <button onClick={handleCreateList} disabled={creatingTrip}
+                        className="px-3 py-2 bg-primary text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-gray-300 transition-colors">
+                        {creatingTrip ? "…" : "Create"}
                       </button>
-                    )}
+                      <button onClick={() => { setShowNewTripInput(false); setNewTripName(""); }}
+                        className="px-3 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm hover:border-gray-400">
+                        Cancel
+                      </button>
+                    </div>
                   </div>
+                ) : (
+                  <button
+                    onClick={() => setShowNewTripInput(true)}
+                    className="px-4 py-2 border-2 border-dashed border-gray-300 text-gray-500 rounded-lg text-sm hover:border-primary hover:text-primary transition-all"
+                  >
+                    + New list
+                  </button>
+                )}
+              </div>
 
                   {itineraries.length === 0 ? (
                     <div className="bg-white rounded-xl shadow p-16 text-center">
-                      <div className="text-5xl mb-4">✈️</div>
-                      <h2 className="text-xl font-semibold text-dark mb-2">No trips yet</h2>
-                      <p className="text-gray-500 mb-6">Create a trip, or promote dishes from your Wishlist.</p>
+                      <div className="text-5xl mb-4">🗂️</div>
+                      <h2 className="text-xl font-semibold text-dark mb-2">No lists yet</h2>
+                      <p className="text-gray-500 mb-6">Create a wishlist, a trip, or a visited favorites list.</p>
                       <button onClick={() => setShowNewTripInput(true)}
                         className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 font-semibold">
-                        Create a trip
+                        Create a list
                       </button>
                     </div>
                   ) : activeId && (
@@ -1156,10 +670,11 @@ export default function Plan() {
                       <div className="bg-white rounded-xl shadow p-12 text-center">
                         <div className="text-4xl mb-3">🍽️</div>
                         <p className="text-gray-500 mb-4">No dishes in <strong>{activeTrip?.name}</strong> yet.</p>
-                        <button onClick={() => setActiveTab("wishlist")}
-                          className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
-                          Browse wishlist
-                        </button>
+                        <Link href="/explore">
+                          <button className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
+                            Discover dishes
+                          </button>
+                        </Link>
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1426,27 +941,16 @@ export default function Plan() {
                       </div>
                     )
                   )}
-                </>
-              )}
             </>
           )}
         </div>
 
         {/* ── Modals ────────────────────────────────────────────────────── */}
-        {confirmDeleteWishlistId && (
-          <ConfirmModal
-            isOpen={true}
-            title="Remove from Wishlist"
-            message="Remove this dish from your wishlist?"
-            onConfirm={() => handleDeleteWishlistItem(confirmDeleteWishlistId)}
-            onCancel={() => setConfirmDeleteWishlistId(null)}
-          />
-        )}
         {confirmDeleteItemId && (
           <ConfirmModal
             isOpen={true}
-            title="Remove from trip"
-            message="Remove this dish from the trip?"
+            title="Remove from list"
+            message="Remove this dish from the list?"
             onConfirm={() => handleDeleteItem(confirmDeleteItemId)}
             onCancel={() => setConfirmDeleteItemId(null)}
           />
@@ -1454,8 +958,8 @@ export default function Plan() {
         {confirmDeleteTripId && (
           <ConfirmModal
             isOpen={true}
-            title="Delete trip"
-            message="Delete this trip and all its dishes? This cannot be undone."
+            title="Delete list"
+            message="Delete this list and all its dishes? This cannot be undone."
             onConfirm={() => handleDeleteTrip(confirmDeleteTripId)}
             onCancel={() => setConfirmDeleteTripId(null)}
           />
@@ -1497,68 +1001,6 @@ export default function Plan() {
           </Portal>
         )}
 
-        {tripModal && (
-          <Portal>
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-dark">Add to Trip</h2>
-                <button onClick={() => setTripModal(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
-              </div>
-              <p className="text-sm text-gray-500 mb-5">
-                Add <span className="font-semibold text-dark">{tripModal.dish_name}</span> in {tripModal.city_name} to one or more trips.
-              </p>
-              {itineraries.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Your trips</p>
-                  <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {itineraries.map(trip => {
-                      const checked = selectedItineraryIds.includes(trip.id);
-                      return (
-                        <button
-                          key={trip.id}
-                          onClick={() => setSelectedItineraryIds(prev => checked ? prev.filter(id => id !== trip.id) : [...prev, trip.id])}
-                          className={`w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-2 ${
-                            checked ? "bg-primary text-white border-primary" : "border-gray-200 text-gray-700 hover:border-primary hover:text-primary"
-                          }`}
-                        >
-                          <span className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-xs ${checked ? "bg-white border-white text-primary" : "border-gray-300"}`}>
-                            {checked ? "✓" : ""}
-                          </span>
-                          ✈️ {trip.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div className="mb-5">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">New trip</p>
-                <input
-                  type="text"
-                  value={tripModalNewName}
-                  onChange={e => setTripModalNewName(e.target.value)}
-                  placeholder="Trip name (e.g. Paris Spring 2025)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleAddToTrip}
-                  disabled={addingToTrip || (selectedItineraryIds.length === 0 && !tripModalNewName.trim())}
-                  className="flex-1 px-4 py-2.5 bg-primary text-white rounded-lg font-semibold text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {addingToTrip ? "Adding…" : `Add to ${selectedItineraryIds.length + (tripModalNewName.trim() ? 1 : 0) > 1 ? `${selectedItineraryIds.length + (tripModalNewName.trim() ? 1 : 0)} trips` : "Trip"}`}
-                </button>
-                <button onClick={() => setTripModal(null)}
-                  className="px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg text-sm hover:border-gray-400 transition-colors">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-          </Portal>
-        )}
       </Layout>
     </>
   );
