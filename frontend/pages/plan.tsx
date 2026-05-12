@@ -69,7 +69,9 @@ interface Restaurant {
 
 interface PassportEntry {
   id: string;
-  dish_id: string;
+  dish_id: string | null;
+  dish_name: string | null;
+  city_name: string | null;
   restaurant_id: string | null;
 }
 
@@ -186,12 +188,17 @@ export default function Plan() {
               if (token) {
                 const rList = await fetchRestaurants(token, matchItem.dish_id, matchItem.restaurant_ids);
                 setRestaurants(rList);
+                setRestaurantCache(prev => {
+                  const next = { ...prev };
+                  rList.forEach(r => { next[r.id] = r; });
+                  return next;
+                });
                 const target = rList.find(r => r.id === intent.restaurantId);
-                if (target?.latitude && target?.longitude) {
-                  setFocusCoords({ lat: target.latitude, lng: target.longitude });
-                }
-                // Scroll card into view
+                // Delay so the map has time to render the restaurant pins after cache is set
                 setTimeout(() => {
+                  if (target?.latitude && target?.longitude) {
+                    setFocusCoords({ lat: target.latitude, lng: target.longitude });
+                  }
                   document.getElementById(`restaurant-card-${intent.restaurantId}`)
                     ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
                 }, 300);
@@ -617,7 +624,11 @@ export default function Plan() {
     });
   })() as MapDisplayItem[];
 
-  const eatenDishIds = new Set(passportEntries.map(e => e.dish_id));
+  const eatenDishIds = new Set(passportEntries.filter(e => e.dish_id).map(e => e.dish_id as string));
+  const isItemEaten = (item: ItineraryItem) =>
+    item.dish_id
+      ? eatenDishIds.has(item.dish_id)
+      : passportEntries.some(e => !e.dish_id && e.dish_name === item.dish_name && e.city_name === item.city_name);
   const isRestaurantEaten = (restaurantId: string) => passportEntries.some(e => e.restaurant_id === restaurantId);
   const activeTrip = itineraries.find(t => t.id === activeId);
 
@@ -788,7 +799,7 @@ export default function Plan() {
                                   {isExpanded && (
                                     <div className="border-t border-gray-100 divide-y divide-gray-50">
                                       {group.items.map(item => {
-                                        const eaten = eatenDishIds.has(item.dish_id ?? "");
+                                        const eaten = isItemEaten(item);
                                         const isSelected = selectedItem?.id === item.id;
                                         const color = getDishColorForItem(item);
                                         return (
@@ -821,12 +832,12 @@ export default function Plan() {
                                                 )}
                                               </div>
                                               <div className="flex-shrink-0 flex flex-col gap-1 items-end">
-                                                {item.dish_id && !eaten && (
+                                                {!eaten && (
                                                   <button
                                                     onClick={e => { e.stopPropagation(); handleMarkDishEaten(item); }}
-                                                    disabled={markingEaten.has(item.dish_id!)}
+                                                    disabled={markingEaten.has(item.dish_id ?? `cat:${item.dish_name}:${item.city_name}`)}
                                                     className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
-                                                  >{markingEaten.has(item.dish_id!) ? "Saving…" : "✓ Eaten"}</button>
+                                                  >{markingEaten.has(item.dish_id ?? `cat:${item.dish_name}:${item.city_name}`) ? "Saving…" : "✓ Eaten"}</button>
                                                 )}
                                                 <button
                                                   onClick={e => { e.stopPropagation(); setConfirmDeleteItemId(item.id); }}
@@ -915,9 +926,7 @@ export default function Plan() {
                                           {r.address && <p className="text-xs text-gray-400 mb-1">{r.address}</p>}
                                           {r.rank_rationale && <p className="text-xs text-gray-500 italic mb-2 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>}
                                           <div className="flex items-center gap-2 flex-wrap">
-                                            {!selectedItem?.dish_id ? (
-                                              <span className="text-xs text-gray-400 italic">Discover this dish from Explore to track it</span>
-                                            ) : eaten ? (
+                                            {eaten ? (
                                               <span className="text-xs text-green-600 font-medium">✓ You tried this</span>
                                             ) : (
                                               <button onClick={e => { e.stopPropagation(); handleMarkEaten(r); }} disabled={markingEaten.has(r.id)}
