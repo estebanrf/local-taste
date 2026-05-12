@@ -10,7 +10,8 @@ import glob
 import subprocess
 
 migrations_dir = os.path.join(os.path.dirname(__file__), "migrations")
-files = sorted(glob.glob(os.path.join(migrations_dir, "*.sql")))
+files = sorted(f for f in glob.glob(os.path.join(migrations_dir, "*.sql"))
+               if not os.path.basename(f).startswith("001_"))
 
 if not files:
     print("No migration files found.")
