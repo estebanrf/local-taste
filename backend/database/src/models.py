@@ -309,7 +309,10 @@ class ItineraryItems(BaseModel):
                    c.id           AS city_id,
                    (SELECT COUNT(*) FROM passport_entries pe
                     WHERE pe.clerk_user_id = ii.clerk_user_id
-                      AND pe.dish_id = ii.dish_id) AS eaten_count,
+                      AND CASE
+                            WHEN ii.dish_id IS NOT NULL THEN pe.dish_id = ii.dish_id
+                            ELSE pe.dish_id IS NULL AND pe.dish_name = ii.dish_name AND pe.city_name = ii.city_name
+                          END) AS eaten_count,
                    COALESCE(
                        (SELECT r.latitude  FROM restaurants r
                         WHERE r.id = (ii.restaurant_ids->>0)::uuid
@@ -342,7 +345,10 @@ class ItineraryItems(BaseModel):
                    c.id           AS city_id,
                    (SELECT COUNT(*) FROM passport_entries pe
                     WHERE pe.clerk_user_id = ii.clerk_user_id
-                      AND pe.dish_id = ii.dish_id) AS eaten_count,
+                      AND CASE
+                            WHEN ii.dish_id IS NOT NULL THEN pe.dish_id = ii.dish_id
+                            ELSE pe.dish_id IS NULL AND pe.dish_name = ii.dish_name AND pe.city_name = ii.city_name
+                          END) AS eaten_count,
                    COALESCE(
                        (SELECT r.latitude  FROM restaurants r
                         WHERE r.id = (ii.restaurant_ids->>0)::uuid
