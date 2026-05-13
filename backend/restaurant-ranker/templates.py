@@ -26,7 +26,10 @@ _JSON_FORMAT = """{
   ]
 }"""
 
-_DIETARY_NOTE = """Dietary preferences: if the task specifies dietary requirements (e.g. vegetarian, vegan, gluten-free, halal), add a note in highlights[] for restaurants that clearly accommodate them (e.g. "vegetarian-friendly", "gluten-free options"). Deprioritise restaurants that cannot accommodate the stated requirements."""
+_DIETARY_NOTE = """Dietary preferences: if the task specifies dietary requirements (e.g. vegetarian, vegan, gluten-free, halal):
+- Add a note in highlights[] for restaurants that clearly accommodate them (e.g. "vegetarian-friendly", "gluten-free options")
+- In rank_rationale, include one sentence explicitly stating whether this restaurant fully accommodates, partially accommodates, or does not accommodate the stated dietary requirements — and how (e.g. "Fully vegetarian menu with strong vegan options", "Has halal-certified meat but shared kitchen", "Limited gluten-free choices")
+- Deprioritise restaurants that cannot accommodate the stated requirements"""
 
 _REVIEWS_NOTE = """Reviews: each result includes up to 5 real reviewer quotes. Use these to:
 - Write an accurate rank_rationale grounded in what people actually say

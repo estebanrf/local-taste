@@ -106,10 +106,6 @@ const OCCASIONS = [
   { id: "Natural wine bar",label: "Natural wine",    emoji: "🍷" },
   { id: "Craft beer",      label: "Craft beer",      emoji: "🍺" },
   { id: "Cocktail bar",    label: "Cocktail bar",    emoji: "🍸" },
-  { id: "Vegan",           label: "Vegan",           emoji: "🌱" },
-  { id: "Vegetarian",      label: "Vegetarian",      emoji: "🥦" },
-  { id: "Halal",           label: "Halal",           emoji: "☪️" },
-  { id: "Gluten-free",     label: "Gluten-free",     emoji: "🌾" },
 ];
 
 export default function Explore() {
@@ -808,21 +804,29 @@ export default function Explore() {
                 {geoStatus === "locating" ? (
                   <span className="animate-pulse">Locating…</span>
                 ) : (
-                  <>
-                    📍 Near me
-                    {geoStatus === "ready" && geoLabel && (
-                      <span className="font-normal text-xs text-gray-500 ml-1">{geoLabel}</span>
-                    )}
-                  </>
+                  <>📍 Near me</>
                 )}
               </button>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
-              {locationMode === "nearby" && geoStatus === "locating" ? (
-                <div className="flex-1 flex items-center px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500 animate-pulse">
-                  Detecting your location…
-                </div>
+              {locationMode === "nearby" ? (
+                geoStatus === "locating" ? (
+                  <div className="flex-1 flex items-center px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500 animate-pulse">
+                    Detecting your location…
+                  </div>
+                ) : geoLabel ? (
+                  <div className="flex-1 flex items-center gap-2 px-4 py-3 border border-blue-200 rounded-lg bg-blue-50 text-sm text-blue-700">
+                    📍 {geoLabel}
+                    <button
+                      type="button"
+                      onClick={() => { setLocationMode("city"); setGeoCoords(null); setGeoStatus("idle"); setGeoLabel(""); }}
+                      className="ml-auto text-blue-400 hover:text-blue-600 text-xs underline"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : null
               ) : (
                 <CityAutocomplete
                   key={cityKey}
@@ -880,9 +884,27 @@ export default function Explore() {
                 <div className="text-4xl mb-4 animate-strong-pulse">🌍</div>
                 <p className="text-lg font-medium text-gray-700 mb-2">{statusMessage}</p>
                 <p className="text-sm text-gray-500">Gathering local reviews and recommendations — usually takes 20-40 seconds</p>
-                {stage === "searching" && (activeDiscoverPrefs.length > 0 || priceRange.length > 0) && (
+                {stage === "searching" && activeDiscoverPrefs.length > 0 && (
                   <div className="mt-4 flex flex-wrap justify-center items-center gap-2">
                     <span className="text-xs text-gray-400">Applying:</span>
+                    {activeDiscoverPrefs.map(p => {
+                      const opt = DIETARY_OPTIONS.find(o => o.id === p);
+                      return (
+                        <span key={p} className="text-xs px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-100">
+                          {opt?.emoji} {opt?.label ?? p}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {stage === "loading_restaurants" && (activeDiscoverPrefs.length > 0 || priceRange.length > 0 || geoCoords) && (
+                  <div className="mt-4 flex flex-wrap justify-center items-center gap-2">
+                    <span className="text-xs text-gray-400">Applying:</span>
+                    {geoCoords && (
+                      <span className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full font-medium border border-blue-100">
+                        📍 Near you
+                      </span>
+                    )}
                     {priceRange.map(p => (
                       <span key={p} className="text-xs px-2.5 py-1 bg-amber-50 text-amber-700 rounded-full font-medium border border-amber-100">
                         {p}
