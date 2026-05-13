@@ -125,11 +125,20 @@ export default function Home() {
           <div className="max-w-2xl mx-auto">
             <h2 className="text-3xl font-bold mb-4">Ready to eat like a local?</h2>
             <p className="text-lg mb-8 opacity-80">Join food lovers discovering the world one dish at a time.</p>
-            <SignUpButton mode="modal">
-              <button className="px-8 py-4 bg-accent text-dark font-semibold text-lg rounded-lg hover:bg-violet-300 transition-colors shadow-lg">
-                Create your Food Passport
-              </button>
-            </SignUpButton>
+            <SignedOut>
+              <SignUpButton mode="modal">
+                <button className="px-8 py-4 bg-accent text-dark font-semibold text-lg rounded-lg hover:bg-violet-300 transition-colors shadow-lg">
+                  Create your Food Passport
+                </button>
+              </SignUpButton>
+            </SignedOut>
+            <SignedIn>
+              <Link href="/passport">
+                <button className="px-8 py-4 bg-accent text-dark font-semibold text-lg rounded-lg hover:bg-violet-300 transition-colors shadow-lg">
+                  Open your Food Passport
+                </button>
+              </Link>
+            </SignedIn>
           </div>
         </section>
 
