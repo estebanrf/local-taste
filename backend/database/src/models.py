@@ -443,6 +443,8 @@ class ItineraryItems(BaseModel):
             data['notes'] = item.notes
         if item.itinerary_id:
             data['itinerary_id'] = item.itinerary_id
+        if item.category_type:
+            data['category_type'] = item.category_type
         return self.db.insert('itinerary_items', data, returning='id')
 
     def delete_item(self, item_id: str) -> int:

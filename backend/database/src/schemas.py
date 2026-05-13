@@ -12,6 +12,7 @@ from datetime import date, datetime
 JobType = Literal["city_discovery", "restaurant_ranking"]
 JobStatus = Literal["pending", "running", "completed", "failed"]
 PriceLevel = Literal["$", "$$", "$$$", "$$$$"]
+CategoryType = Literal["world_cuisine", "occasion"]
 
 
 # ── City ──────────────────────────────────────────────────────────────────────
@@ -56,6 +57,8 @@ class RestaurantCreate(BaseModel):
     highlights: List[str] = Field(default_factory=list, description="Short highlights e.g. ['authentic','local favourite']")
     latitude: Optional[float] = Field(None, description="Latitude extracted from Maps URL or geocoded")
     longitude: Optional[float] = Field(None, description="Longitude extracted from Maps URL or geocoded")
+    photo_url: Optional[str] = Field(None, description="CDN photo URL resolved from Google Places photo reference")
+    reviews: List[Dict] = Field(default_factory=list, description="Up to 5 review snippets from Google Places Details")
 
 
 class RestaurantResponse(RestaurantCreate):
@@ -121,6 +124,7 @@ class ItineraryItemCreate(BaseModel):
     notes: Optional[str] = None
     itinerary_id: Optional[str] = None
     restaurant_id: Optional[str] = None
+    category_type: Optional[CategoryType] = None
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────

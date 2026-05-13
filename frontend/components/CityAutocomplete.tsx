@@ -78,7 +78,7 @@ export default function CityAutocomplete({ onSelect, initialValue = "", disabled
       {open && (
         <ul
           ref={listRef}
-          className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-64"
+          className="absolute z-[1000] left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-64"
         >
           {results.map((opt, i) => (
             <li

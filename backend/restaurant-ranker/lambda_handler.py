@@ -18,7 +18,7 @@ except ImportError:
     pass
 
 from src import Database, RestaurantCreate
-from templates import RESTAURANT_RANKER_INSTRUCTIONS
+from templates import RESTAURANT_RANKER_INSTRUCTIONS, WORLD_CUISINE_RANKER_INSTRUCTIONS, OCCASION_RANKER_INSTRUCTIONS
 from agent import create_agent, RestaurantRankerContext
 
 logger = logging.getLogger()
@@ -57,6 +57,16 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
             lat = r.get("latitude") or lat
             lng = r.get("longitude") or lng
             raw_price = r.get("price_level") or None
+            raw_reviews = r.get("reviews") or []
+            # Normalise reviews to dicts with author/rating/text keys
+            clean_reviews = []
+            for rev in raw_reviews[:5]:
+                if isinstance(rev, dict) and rev.get("text"):
+                    clean_reviews.append({
+                        "author": rev.get("author", ""),
+                        "rating": rev.get("rating"),
+                        "text": str(rev.get("text", ""))[:300],
+                    })
             rest = RestaurantCreate(
                 dish_id=dish_id_val or None,
                 name=r["name"],
@@ -70,9 +80,11 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                 highlights=r.get("highlights", []),
                 latitude=lat,
                 longitude=lng,
+                photo_url=r.get("photo_url") or None,
+                reviews=clean_reviews,
             )
             saved_id = db.restaurants.create_restaurant(rest)
-            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} coords={lat},{lng}")
+            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} photo={'yes' if rest.photo_url else 'no'} reviews={len(clean_reviews)}")
             return saved_id
 
         if dish_id and not category_mode:
@@ -104,24 +116,40 @@ async def run_restaurant_ranker(job_id: str) -> None:
     city                 = payload.get("city", "")
     country              = payload.get("country", "")
     category_mode        = payload.get("category_mode", False)
+    category_type        = payload.get("category_type")  # 'world_cuisine' | 'occasion' | None
     dietary_preferences  = payload.get("dietary_preferences") or []
+    price_range          = payload.get("price_range") or []
+    latitude             = payload.get("latitude")
+    longitude            = payload.get("longitude")
 
-    logger.info(f"RestaurantRanker: job_id={job_id} dish_name={dish_name} city={city} country={country} category_mode={category_mode} dietary={dietary_preferences}")
+    logger.info(f"RestaurantRanker: job_id={job_id} dish_name={dish_name} city={city} country={country} category_mode={category_mode} category_type={category_type} dietary={dietary_preferences} price_range={price_range} coords={latitude},{longitude}")
 
     model, tools, task, context = create_agent(
         job_id, dish_id, dish_name, city, country, db,
         category_mode=category_mode,
+        category_type=category_type,
         dietary_preferences=dietary_preferences,
+        price_range=price_range,
+        latitude=latitude,
+        longitude=longitude,
     )
+
+    if category_type == "world_cuisine":
+        instructions = WORLD_CUISINE_RANKER_INSTRUCTIONS
+    elif category_type == "occasion":
+        instructions = OCCASION_RANKER_INSTRUCTIONS
+    else:
+        instructions = RESTAURANT_RANKER_INSTRUCTIONS
+    max_turns = 5
 
     with trace("Restaurant Ranker"):
         agent = Agent[RestaurantRankerContext](
             name="Restaurant Ranker",
-            instructions=RESTAURANT_RANKER_INSTRUCTIONS,
+            instructions=instructions,
             model=model,
             tools=tools,
         )
-        result = await Runner.run(agent, input=task, context=context, max_turns=10)
+        result = await Runner.run(agent, input=task, context=context, max_turns=max_turns)
 
     logger.info(f"RestaurantRanker: agent output (first 500 chars): {result.final_output[:500]}")
 

@@ -23,13 +23,41 @@ class RestaurantRankerContext:
     country: str
     db: Optional[Any] = None
     category_mode: bool = False
+    category_type: Optional[str] = None  # 'world_cuisine' | 'occasion' | None
     dietary_preferences: Optional[List[str]] = None
+    price_range: Optional[List[str]] = None  # e.g. ['$', '$$']
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+def _resolve_photo_url(api_key: str, photo_reference: str, max_width: int = 600) -> Optional[str]:
+    """Follow the Places photo redirect and return the final CDN URL (no API key exposed)."""
+    import urllib.request
+    url = (
+        f"https://maps.googleapis.com/maps/api/place/photo"
+        f"?maxwidth={max_width}&photoreference={photo_reference}&key={api_key}"
+    )
+    try:
+        req = urllib.request.Request(url, method="GET")
+        # Don't follow redirects — we want the Location header
+        import urllib.error
+        try:
+            urllib.request.urlopen(req)
+        except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 303, 307, 308):
+                return e.headers.get("Location")
+            return None
+        # Some environments follow redirects automatically and land on the image
+        return url  # fallback: return original (key still present but won't reach frontend)
+    except Exception:
+        return None
 
 
 @function_tool
 async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], query: str) -> str:
     """
-    Search for restaurants using the Google Maps Places API.
+    Search for restaurants using the Google Maps Places API, enriched with
+    review snippets and a photo URL from Places Details.
 
     Args:
         query: The search query, e.g. "best ramen restaurants Tokyo Japan"
@@ -45,8 +73,13 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
 
     try:
         gmaps = googlemaps.Client(key=api_key)
-        logger.info(f"Google Maps Places search: {query}")
-        response = gmaps.places(query=query, type="restaurant")
+        ctx = wrapper.context
+        kwargs: dict = {"query": query, "type": "restaurant"}
+        if ctx.latitude is not None and ctx.longitude is not None:
+            kwargs["location"] = (ctx.latitude, ctx.longitude)
+            kwargs["radius"] = 5000
+        logger.info(f"Google Maps Places search: {query} (coords={kwargs.get('location')})")
+        response = gmaps.places(**kwargs)
         results = response.get("results", [])[:5]
 
         lines = []
@@ -60,24 +93,60 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             location = r.get("geometry", {}).get("location", {})
             lat = location.get("lat")
             lng = location.get("lng")
+
             if place_id:
                 maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
             else:
                 import urllib.parse
                 query_str = urllib.parse.quote_plus(f"{name} {address}".strip())
                 maps_url = f"https://www.google.com/maps/search/?q={query_str}"
+
             price_str = "$" * price_level if isinstance(price_level, int) and price_level > 0 else "unknown"
-            lines.append(
+
+            # Fetch Places Details for reviews and photo
+            photo_url = None
+            review_lines = []
+            if place_id:
+                try:
+                    details = gmaps.place(
+                        place_id=place_id,
+                        fields=["review", "photo"],
+                        language="en",
+                    ).get("result", {})
+
+                    # Photo — resolve redirect to get key-free CDN URL
+                    photos = details.get("photos", [])
+                    if photos:
+                        ref = photos[0].get("photo_reference", "")
+                        if ref:
+                            photo_url = _resolve_photo_url(api_key, ref)
+
+                    # Reviews
+                    for rev in details.get("reviews", [])[:5]:
+                        author = rev.get("author_name", "")
+                        rev_rating = rev.get("rating", "")
+                        text = rev.get("text", "").replace("\n", " ").strip()
+                        if text:
+                            review_lines.append(f'  - {author} ({rev_rating}★): "{text[:300]}"')
+                except Exception as e:
+                    logger.warning(f"Places Details failed for {place_id}: {e}")
+
+            block = (
                 f"**{name}**\n"
                 f"Address: {address}\n"
                 f"Rating: {rating} ({review_count} reviews)\n"
                 f"Price: {price_str}\n"
                 f"Latitude: {lat}\n"
                 f"Longitude: {lng}\n"
-                f"Maps: {maps_url}"
+                f"Maps: {maps_url}\n"
+                f"Photo: {photo_url or 'none'}"
             )
+            if review_lines:
+                block += "\nReviews:\n" + "\n".join(review_lines)
 
-        logger.info(f"Google Maps search for '{query}' returned {len(results)} results")
+            lines.append(block)
+
+        logger.info(f"Google Maps search for '{query}' returned {len(results)} results with details")
         return "\n\n".join(lines) or "No results found."
     except Exception as e:
         logger.warning(f"Google Maps search failed: {e}")
@@ -92,7 +161,11 @@ def create_agent(
     country: str,
     db,
     category_mode: bool = False,
+    category_type: Optional[str] = None,
     dietary_preferences: Optional[List[str]] = None,
+    price_range: Optional[List[str]] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
 ):
     model_id = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-pro-v1:0")
     bedrock_region = os.getenv("BEDROCK_REGION", "eu-west-1")
@@ -105,19 +178,40 @@ def create_agent(
         job_id=job_id, dish_id=dish_id, dish_name=dish_name,
         city=city, country=country, db=db,
         category_mode=category_mode,
+        category_type=category_type,
         dietary_preferences=dietary_preferences or [],
+        price_range=price_range or [],
+        latitude=latitude,
+        longitude=longitude,
     )
 
-    if category_mode:
-        search_hint = f'"{dish_name} restaurants {city} {country} best rated"'
-        task = f'Find and rank the top 5 {dish_name} restaurants in {city}, {country}.\n\nSearch: {search_hint}\n'
+    near_me = latitude is not None and longitude is not None
+    location_str = "near the user's current location" if near_me else f"in {city}, {country}"
+    search_suffix = "" if near_me else f" {city}"
+
+    if category_mode and category_type == "world_cuisine":
+        task = (
+            f'Find and rank the top 5 {dish_name} restaurants {location_str}.\n\n'
+            f'Search: "best {dish_name} restaurants{search_suffix}"'
+        )
+    elif category_mode and category_type == "occasion":
+        task = (
+            f'Find and rank the top 5 venues for "{dish_name}" {location_str}.\n\n'
+            f'Search: "{dish_name}{search_suffix}"'
+        )
     else:
-        search_hint = f'"{dish_name} {city} {country} Google Maps rating reviews"'
-        task = f'Find and rank the top 5 restaurants for {dish_name} in {city}, {country}.\n\nSearch: {search_hint}\n'
+        task = (
+            f'Find and rank the top 5 restaurants for {dish_name} {location_str}.\n\n'
+            f'Search: "{dish_name} best restaurants{search_suffix}"'
+        )
 
     if dietary_preferences:
         prefs = ", ".join(dietary_preferences)
         task += f'\nUser dietary requirements: {prefs}. Prioritise restaurants that clearly accommodate these and note it in highlights[].'
+
+    if price_range:
+        tiers = ", ".join(price_range)
+        task += f'\nUser price preference: {tiers}. Strongly prefer restaurants whose price level matches. If none match exactly, include the closest alternatives but note the price in rank_rationale.'
 
     task += '\n\nCompile your final JSON with exactly 5 restaurants. Use real data from search results.'
 

@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
+import dynamic from "next/dynamic";
 import Layout from "../components/Layout";
 import CityAutocomplete from "../components/CityAutocomplete";
+
+const ItineraryMap = dynamic(() => import("../components/ItineraryMap"), { ssr: false });
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
+import { CITIES } from "../lib/cities";
 import Portal from "../components/Portal";
 import Link from "next/link";
 import Head from "next/head";
@@ -19,6 +23,12 @@ interface Dish {
   in_passport: boolean;
 }
 
+interface ReviewSnippet {
+  author: string;
+  rating: number | null;
+  text: string;
+}
+
 interface Restaurant {
   id: string;
   name: string;
@@ -30,6 +40,10 @@ interface Restaurant {
   rank: number;
   rank_rationale: string;
   highlights: string[];
+  latitude: number | null;
+  longitude: number | null;
+  photo_url: string | null;
+  reviews: ReviewSnippet[];
 }
 
 interface City {
@@ -40,32 +54,64 @@ interface City {
 }
 
 type Stage = "idle" | "searching" | "dishes" | "loading_restaurants" | "restaurants";
+type LocationMode = "city" | "nearby";
 
-const LOCAL_CATEGORY = "local";
+type SearchMode = "local" | "world_cuisine" | "occasion";
 
-const CUISINE_CATEGORIES = [
-  { id: "pizza",          label: "Pizza",          emoji: "🍕" },
-  { id: "pasta",          label: "Pasta",          emoji: "🍝" },
-  { id: "sushi",          label: "Sushi",          emoji: "🍣" },
-  { id: "ramen",          label: "Ramen",          emoji: "🍜" },
-  { id: "dumplings",      label: "Dumplings",      emoji: "🥟" },
-  { id: "mexican",        label: "Mexican",        emoji: "🌮" },
-  { id: "indian",         label: "Indian",         emoji: "🍛" },
-  { id: "thai",           label: "Thai",           emoji: "🥗" },
-  { id: "middle-eastern", label: "Middle Eastern", emoji: "🥙" },
-  { id: "burgers",        label: "Burgers",        emoji: "🍔" },
+const WORLD_CUISINES = [
+  { id: "Japanese",       label: "Japanese",       emoji: "🍣" },
+  { id: "Italian",        label: "Italian",        emoji: "🍝" },
+  { id: "Chinese",        label: "Chinese",        emoji: "🥟" },
+  { id: "French",         label: "French",         emoji: "🥐" },
+  { id: "Mexican",        label: "Mexican",        emoji: "🌮" },
+  { id: "Indian",         label: "Indian",         emoji: "🍛" },
+  { id: "Thai",           label: "Thai",           emoji: "🍜" },
+  { id: "Spanish",        label: "Spanish",        emoji: "🥘" },
+  { id: "Greek",          label: "Greek",          emoji: "🫒" },
+  { id: "Turkish",        label: "Turkish",        emoji: "🥙" },
+  { id: "Lebanese",       label: "Lebanese",       emoji: "🧆" },
+  { id: "Korean",         label: "Korean",         emoji: "🥩" },
+  { id: "Vietnamese",     label: "Vietnamese",     emoji: "🍲" },
+  { id: "Peruvian",       label: "Peruvian",       emoji: "🐟" },
+  { id: "American",       label: "American",       emoji: "🍔" },
+  { id: "Brazilian",      label: "Brazilian",      emoji: "🥩" },
+  { id: "Argentinian",    label: "Argentinian",    emoji: "🥩" },
+  { id: "Ethiopian",      label: "Ethiopian",      emoji: "🫓" },
+  { id: "Moroccan",       label: "Moroccan",       emoji: "🫕" },
+  { id: "Indonesian",     label: "Indonesian",     emoji: "🍚" },
+  { id: "Malaysian",      label: "Malaysian",      emoji: "🥗" },
+  { id: "Portuguese",     label: "Portuguese",     emoji: "🐟" },
+  { id: "German",         label: "German",         emoji: "🥨" },
+  { id: "Polish",         label: "Polish",         emoji: "🥟" },
+  { id: "Israeli",        label: "Israeli",        emoji: "🧆" },
+  { id: "Georgian",       label: "Georgian",       emoji: "🫓" },
+  { id: "Filipino",       label: "Filipino",       emoji: "🍖" },
+  { id: "Caribbean",      label: "Caribbean",      emoji: "🌶️" },
+  { id: "Scandinavian",   label: "Scandinavian",   emoji: "🐟" },
+  { id: "Middle Eastern", label: "Middle Eastern", emoji: "🫙" },
+  { id: "African",        label: "African",        emoji: "🌍" },
+  { id: "Fusion",         label: "Fusion",         emoji: "✨" },
 ];
 
-const MEAL_CATEGORIES = [
-  { id: "breakfast",  label: "Breakfast",  emoji: "🌅" },
-  { id: "brunch",     label: "Brunch",     emoji: "🥞" },
-  { id: "lunch",      label: "Lunch",      emoji: "☀️" },
-  { id: "snack",      label: "Snack",      emoji: "🥡" },
-  { id: "dinner",     label: "Dinner",     emoji: "🌙" },
-  { id: "late-night", label: "Late Night", emoji: "🌃" },
+const OCCASIONS = [
+  { id: "Brunch",          label: "Brunch",          emoji: "🥞" },
+  { id: "Breakfast",       label: "Breakfast",       emoji: "🌅" },
+  { id: "Late night",      label: "Late night",      emoji: "🌃" },
+  { id: "Street food",     label: "Street food",     emoji: "🥡" },
+  { id: "Fine dining",     label: "Fine dining",     emoji: "🕯️" },
+  { id: "Tasting menu",    label: "Tasting menu",    emoji: "🍽️" },
+  { id: "Food market",     label: "Food market",     emoji: "🛒" },
+  { id: "Rooftop",         label: "Rooftop",         emoji: "🏙️" },
+  { id: "Waterfront",      label: "Waterfront",      emoji: "⛵" },
+  { id: "Hidden gem",      label: "Hidden gem",      emoji: "💎" },
+  { id: "Natural wine bar",label: "Natural wine",    emoji: "🍷" },
+  { id: "Craft beer",      label: "Craft beer",      emoji: "🍺" },
+  { id: "Cocktail bar",    label: "Cocktail bar",    emoji: "🍸" },
+  { id: "Vegan",           label: "Vegan",           emoji: "🌱" },
+  { id: "Vegetarian",      label: "Vegetarian",      emoji: "🥦" },
+  { id: "Halal",           label: "Halal",           emoji: "☪️" },
+  { id: "Gluten-free",     label: "Gluten-free",     emoji: "🌾" },
 ];
-
-const FOOD_CATEGORIES = [...CUISINE_CATEGORIES, ...MEAL_CATEGORIES];
 
 export default function Explore() {
   const { getToken } = useAuth();
@@ -76,9 +122,10 @@ export default function Explore() {
     setCityInput(city);
     setCountryInput(country);
   }, []);
-  const [isLocal, setIsLocal] = useState(true);
-  const [selectedCuisine, setSelectedCuisine] = useState<string | null>(null);
-  const [selectedMealTime, setSelectedMealTime] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<SearchMode>("local");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [priceRange, setPriceRange] = useState<string[]>([]);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [useMyPrefs, setUseMyPrefs] = useState(true);
   const [customPrefs, setCustomPrefs] = useState<string[]>([]);
@@ -96,6 +143,16 @@ export default function Explore() {
   const [categoryLabel, setCategoryLabel] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState("");
   const [savedRestaurantIds, setSavedRestaurantIds] = useState<Set<string>>(new Set());
+  const [focusCoords, setFocusCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [highlightedRestaurantId, setHighlightedRestaurantId] = useState<string | null>(null);
+  const [cityKey, setCityKey] = useState(0);
+  const [detailRestaurant, setDetailRestaurant] = useState<Restaurant | null>(null);
+
+  // Near-me state
+  const [locationMode, setLocationMode] = useState<LocationMode>("city");
+  const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoLabel, setGeoLabel] = useState<string>("");
+  const [geoStatus, setGeoStatus] = useState<"idle" | "locating" | "ready" | "denied">("idle");
 
   // Save-to modal state
   const [saveModal, setSaveModal] = useState<{
@@ -104,6 +161,7 @@ export default function Explore() {
     cityName: string;
     country: string;
     restaurantId?: string;
+    categoryType?: "world_cuisine" | "occasion";
   } | null>(null);
   const [saveNotes, setSaveNotes] = useState("");
   const [selectedItineraryId, setSelectedItineraryId] = useState<string>("");
@@ -144,6 +202,45 @@ export default function Explore() {
     if (pollInterval) { clearInterval(pollInterval); setPollInterval(null); }
   };
 
+  const requestLocation = () => {
+    if (geoCoords) {
+      setLocationMode("nearby");
+      return;
+    }
+    if (!navigator.geolocation) {
+      showToast("error", "Your browser doesn't support geolocation.");
+      return;
+    }
+    setGeoStatus("locating");
+    setLocationMode("nearby");
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setGeoCoords({ lat: latitude, lng: longitude });
+        // Reverse geocode via Nominatim
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10`,
+            { headers: { "Accept-Language": "en" } }
+          );
+          const data = await res.json();
+          const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || "";
+          const country = data.address?.country || "";
+          setGeoLabel(city ? `${city}${country ? `, ${country}` : ""}` : "your location");
+        } catch {
+          setGeoLabel("your location");
+        }
+        setGeoStatus("ready");
+      },
+      () => {
+        setGeoStatus("denied");
+        setLocationMode("city");
+        showToast("error", "Location access denied. Please allow it in your browser settings.");
+      },
+      { timeout: 10000 }
+    );
+  };
+
   const pollJob = async (jid: string, onComplete: (job: Record<string, unknown>) => void) => {
     stopPolling();
     const interval = setInterval(async () => {
@@ -169,39 +266,50 @@ export default function Explore() {
     setPollInterval(interval);
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cityInput.trim() || !countryInput.trim()) {
-      showToast("error", "Please select a city from the list");
-      return;
-    }
-
+  const runSearch = async (opts: {
+    city: string;
+    country: string;
+    mode: SearchMode;
+    category: string | null;
+    dietary: string[];
+    price: string[];
+    latitude?: number | null;
+    longitude?: number | null;
+  }) => {
     setDishes([]);
     setCity(null);
     setSelectedDish(null);
     setRestaurants([]);
+    setFocusCoords(null);
+    setHighlightedRestaurantId(null);
     setTimeout(() => loadingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
 
-    const activeDietary = useMyPrefs ? dietaryPrefs : customPrefs;
-
-    // Non-local: skip dish discovery, go straight to restaurant ranking
-    if (!isLocal) {
-      const catId = selectedCuisine || selectedMealTime;
-      const cat = FOOD_CATEGORIES.find(c => c.id === catId);
-      const catName = cat ? `${cat.emoji} ${cat.label}` : (catId ?? "food");
+    if (opts.mode !== "local") {
+      if (!opts.category) {
+        showToast("error", opts.mode === "world_cuisine" ? "Please select a cuisine" : "Please select an occasion");
+        return;
+      }
+      const allCats = opts.mode === "world_cuisine" ? WORLD_CUISINES : OCCASIONS;
+      const cat = allCats.find(c => c.id === opts.category);
+      const catName = cat ? `${cat.emoji} ${cat.label}` : opts.category;
       setCategoryLabel(catName);
       setStage("loading_restaurants");
-      setStatusMessage(`Finding the best ${cat?.label || catId} spots in ${cityInput}…`);
+      setStatusMessage(`Finding the best ${cat?.label || opts.category} spots in ${opts.city}…`);
       try {
         const token = await getToken();
         const res = await fetch(`${API_URL}/api/rank-by-category`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            category: cat?.label || catId,
-            city: cityInput.trim(),
-            country: countryInput.trim(),
-            dietary_preferences: activeDietary,
+            category: cat?.label || opts.category,
+            category_type: opts.mode,
+            city: opts.city,
+            country: opts.country,
+            dietary_preferences: opts.dietary,
+            price_range: opts.price,
+            ...(opts.latitude != null && opts.longitude != null
+              ? { latitude: opts.latitude, longitude: opts.longitude }
+              : {}),
           }),
         });
         if (!res.ok) throw new Error("Failed to start category search");
@@ -209,7 +317,7 @@ export default function Explore() {
         pollJob(data.job_id, async (job) => {
           const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
           const rList = (rPayload.restaurants as Restaurant[]) || [];
-          setRestaurants([...rList].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0)));
+          setRestaurants([...rList].sort((a, b) => a.rank - b.rank));
           setStage("restaurants");
         });
       } catch {
@@ -219,7 +327,6 @@ export default function Explore() {
       return;
     }
 
-    // Local dishes flow
     setStage("searching");
     setStatusMessage("Exploring the local food scene…");
     try {
@@ -228,10 +335,10 @@ export default function Explore() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          city: cityInput.trim(),
-          country: countryInput.trim(),
-          dietary_preferences: activeDietary,
-          meal_time: selectedMealTime,
+          city: opts.city,
+          country: opts.country,
+          dietary_preferences: opts.dietary,
+          meal_time: null,
         }),
       });
       if (!res.ok) throw new Error("Failed to start discovery");
@@ -259,6 +366,73 @@ export default function Explore() {
     }
   };
 
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (locationMode === "nearby") {
+      if (geoStatus === "locating") return;
+      if (!geoCoords) {
+        requestLocation();
+        return;
+      }
+      if (searchMode === "local") {
+        showToast("error", "Local dishes requires a specific city — switch to A city or choose World cuisine / Occasion.");
+        return;
+      }
+      await runSearch({
+        city: geoLabel,
+        country: "",
+        mode: searchMode,
+        category: selectedCategory,
+        dietary: useMyPrefs ? dietaryPrefs : customPrefs,
+        price: priceRange,
+        latitude: geoCoords.lat,
+        longitude: geoCoords.lng,
+      });
+      return;
+    }
+    if (!cityInput.trim() || !countryInput.trim()) {
+      showToast("error", "Please select a city from the list");
+      return;
+    }
+    await runSearch({
+      city: cityInput.trim(),
+      country: countryInput.trim(),
+      mode: searchMode,
+      category: selectedCategory,
+      dietary: useMyPrefs ? dietaryPrefs : customPrefs,
+      price: priceRange,
+    });
+  };
+
+  const handleSurpriseMe = async () => {
+    if (stage === "searching" || stage === "loading_restaurants") return;
+    const randomCity = CITIES[Math.floor(Math.random() * CITIES.length)];
+    const modes: SearchMode[] = ["local", "world_cuisine", "occasion"];
+    const randomMode = modes[Math.floor(Math.random() * modes.length)];
+    let randomCategory: string | null = null;
+    if (randomMode === "world_cuisine") {
+      randomCategory = WORLD_CUISINES[Math.floor(Math.random() * WORLD_CUISINES.length)].id;
+    } else if (randomMode === "occasion") {
+      randomCategory = OCCASIONS[Math.floor(Math.random() * OCCASIONS.length)].id;
+    }
+
+    setCityInput(randomCity.city);
+    setCountryInput(randomCity.country);
+    setSearchMode(randomMode);
+    setSelectedCategory(randomCategory);
+    setCategoryFilter("");
+    setCityKey(k => k + 1);
+
+    await runSearch({
+      city: randomCity.city,
+      country: randomCity.country,
+      mode: randomMode,
+      category: randomCategory,
+      dietary: useMyPrefs ? dietaryPrefs : customPrefs,
+      price: priceRange,
+    });
+  };
+
   const handleDishClick = async (dish: Dish) => {
     setSelectedDish(dish);
     setRestaurants([]);
@@ -277,6 +451,7 @@ export default function Explore() {
           city: city?.name || "",
           country: city?.country || "",
           dietary_preferences: dietaryPrefs,
+          price_range: priceRange,
         }),
       });
       if (!res.ok) throw new Error("Failed to start restaurant search");
@@ -284,10 +459,10 @@ export default function Explore() {
       pollJob(data.job_id, async (job) => {
         const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
         const rList = (rPayload.restaurants as Restaurant[]) || [];
-        const sortByRating = (list: Restaurant[]) =>
-          [...list].sort((a, b) => (b.google_rating ?? 0) - (a.google_rating ?? 0));
+        const sortByRank = (list: Restaurant[]) =>
+          [...list].sort((a, b) => a.rank - b.rank);
         if (rList.length > 0) {
-          setRestaurants(sortByRating(rList));
+          setRestaurants(sortByRank(rList));
           setStage("restaurants");
           setTimeout(() => restaurantsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
         } else {
@@ -298,7 +473,7 @@ export default function Explore() {
           });
           if (rRes.ok) {
             const rData = await rRes.json();
-            setRestaurants(sortByRating(rData.restaurants || []));
+            setRestaurants(sortByRank(rData.restaurants || []));
           }
           setStage("restaurants");
           setTimeout(() => restaurantsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -318,7 +493,10 @@ export default function Explore() {
     setSaveNotes("");
     setSelectedItineraryId(itineraries[0]?.id ?? "");
     setNewListName("");
-    setSaveModal({ dishId: dish?.id ?? null, dishName, cityName: cName, country: cCountry, restaurantId });
+    const categoryType = !dish && searchMode !== "local"
+      ? (searchMode as "world_cuisine" | "occasion")
+      : undefined;
+    setSaveModal({ dishId: dish?.id ?? null, dishName, cityName: cName, country: cCountry, restaurantId, categoryType });
   };
 
   const confirmSave = async () => {
@@ -330,7 +508,7 @@ export default function Explore() {
       const dbDishName = saveModal.dishName.replace(/\p{Emoji_Presentation}\s*/gu, "").trim();
       const baseBody = saveModal.dishId
         ? { dish_id: saveModal.dishId, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined }
-        : { dish_name: dbDishName, city_name: saveModal.cityName, country: saveModal.country, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined };
+        : { dish_name: dbDishName, city_name: saveModal.cityName, country: saveModal.country, restaurant_id: saveModal.restaurantId || undefined, notes: saveNotes || undefined, category_type: saveModal.categoryType };
 
       let itineraryId = selectedItineraryId;
 
@@ -389,6 +567,34 @@ export default function Explore() {
 
   const activeDiscoverPrefs = useMyPrefs ? dietaryPrefs : customPrefs;
 
+  const RANK_COLORS = ["#7c3aed", "#9333ea", "#a855f7", "#c084fc", "#e9d5ff"];
+  const rankColor = (rank: number) => RANK_COLORS[(rank - 1) % RANK_COLORS.length];
+
+  // Build map items from current restaurants list
+  const mapItems = restaurants
+    .filter(r => r.latitude != null && r.longitude != null)
+    .map(r => ({
+      id: r.id,
+      dish_id: null as string | null,
+      dish_name: r.name,
+      city_name: cityInput,
+      country: countryInput,
+      notes: null as string | null,
+      dish_description: r.rank_rationale ?? null,
+      cuisine_type: null as string | null,
+      tags: [] as string[],
+      dish_rank: null as number | null,
+      city_id: null as string | null,
+      eaten_count: 0,
+      created_at: "",
+      latitude: r.latitude,
+      longitude: r.longitude,
+      restaurant_ids: [] as string[],
+      restaurant_name: r.name,
+      restaurant_id: r.id,
+      color: rankColor(r.rank),
+    }));
+
   const getRestaurantBadge = (r: Restaurant): string | null => {
     const h = r.highlights.map(s => s.toLowerCase()).join(" ");
     if (/hidden|secret|gem/.test(h)) return "Hidden gem";
@@ -414,79 +620,139 @@ export default function Explore() {
           {/* Food category selector */}
           <div className="bg-white rounded-xl shadow p-6 mb-4">
 
-            {/* Top-level toggle */}
-            <div className="grid grid-cols-2 gap-3 mb-5">
-              <button
-                type="button"
-                onClick={() => setIsLocal(true)}
-                className={`flex items-center gap-3 px-4 py-4 rounded-xl border-2 font-semibold text-left transition-all ${
-                  isLocal ? "border-primary bg-purple-50 text-primary" : "border-gray-200 text-gray-700 hover:border-purple-200"
-                }`}
-              >
-                <span className="text-2xl">🌍</span>
-                <div>
-                  <div className="font-bold text-sm">Local dishes</div>
-                  <div className="text-xs font-normal text-gray-500">The soul of the city</div>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsLocal(false)}
-                className={`flex items-center gap-3 px-4 py-4 rounded-xl border-2 font-semibold text-left transition-all ${
-                  !isLocal ? "border-primary bg-purple-50 text-primary" : "border-gray-200 text-gray-700 hover:border-purple-200"
-                }`}
-              >
-                <span className="text-2xl">🍽️</span>
-                <div>
-                  <div className="font-bold text-sm">Not feeling local?</div>
-                  <div className="text-xs font-normal text-gray-500">Pick a cuisine or meal time</div>
-                </div>
-              </button>
+            {/* Step 1 — three-bucket selector */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5">
+              {([
+                { mode: "local" as SearchMode,        emoji: "🌍", title: "Local dishes",    sub: "The soul of the city" },
+                { mode: "world_cuisine" as SearchMode, emoji: "✈️", title: "World cuisine",  sub: "Foreign food in this city" },
+                { mode: "occasion" as SearchMode,      emoji: "☀️", title: "Occasion",        sub: "Brunch, rooftop, fine dining…" },
+              ] as { mode: SearchMode; emoji: string; title: string; sub: string }[]).map(opt => {
+                const nearbyDisabled = locationMode === "nearby" && opt.mode === "local";
+                return (
+                  <button
+                    key={opt.mode}
+                    type="button"
+                    onClick={() => {
+                      if (nearbyDisabled) return;
+                      setSearchMode(opt.mode); setSelectedCategory(null); setCategoryFilter("");
+                    }}
+                    title={nearbyDisabled ? "Local dishes requires a specific city" : undefined}
+                    className={`flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-3 px-2 sm:px-4 py-3 sm:py-4 rounded-xl border-2 font-semibold text-center sm:text-left transition-all ${
+                      nearbyDisabled
+                        ? "border-gray-100 text-gray-300 cursor-not-allowed opacity-50"
+                        : searchMode === opt.mode
+                          ? "border-primary bg-purple-50 text-primary"
+                          : "border-gray-200 text-gray-700 hover:border-purple-200"
+                    }`}
+                  >
+                    <span className="text-xl sm:text-2xl">{opt.emoji}</span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs sm:text-sm leading-tight">{opt.title}</div>
+                      <div className="text-xs font-normal text-gray-500 hidden sm:block">{opt.sub}</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Cuisine grid — only for non-local */}
-            {!isLocal && (
+            {/* Step 2 — cuisine chip grid */}
+            {searchMode === "world_cuisine" && (
               <div className="mb-5">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Cuisine</p>
-                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-10 gap-2">
-                  {CUISINE_CATEGORIES.map(cat => (
+                <div className="flex items-center gap-3 mb-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Select a cuisine</p>
+                  <input
+                    type="text"
+                    value={categoryFilter}
+                    onChange={e => setCategoryFilter(e.target.value)}
+                    placeholder="Filter…"
+                    className="ml-auto px-3 py-1 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary w-32"
+                  />
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                  {WORLD_CUISINES.filter(c => c.label.toLowerCase().includes(categoryFilter.toLowerCase())).map(cat => (
                     <button
                       key={cat.id}
                       type="button"
-                      onClick={() => setSelectedCuisine(prev => prev === cat.id ? null : cat.id)}
-                      className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
-                        selectedCuisine === cat.id
+                      onClick={() => setSelectedCategory(prev => prev === cat.id ? null : cat.id)}
+                      className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
+                        selectedCategory === cat.id
                           ? "border-primary bg-purple-50 text-primary"
                           : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
                       }`}
                     >
                       <span className="text-xl">{cat.emoji}</span>
-                      <span>{cat.label}</span>
+                      <span className="text-center leading-tight">{cat.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Meal time — shown for both modes */}
+            {/* Step 2 — occasion chip grid */}
+            {searchMode === "occasion" && (
+              <div className="mb-5">
+                <div className="flex items-center gap-3 mb-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Select an occasion</p>
+                  <input
+                    type="text"
+                    value={categoryFilter}
+                    onChange={e => setCategoryFilter(e.target.value)}
+                    placeholder="Filter…"
+                    className="ml-auto px-3 py-1 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary w-32"
+                  />
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                  {OCCASIONS.filter(c => c.label.toLowerCase().includes(categoryFilter.toLowerCase())).map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setSelectedCategory(prev => prev === cat.id ? null : cat.id)}
+                      className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
+                        selectedCategory === cat.id
+                          ? "border-primary bg-purple-50 text-primary"
+                          : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className="text-xl">{cat.emoji}</span>
+                      <span className="text-center leading-tight">{cat.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Price range */}
             <div className="mb-5">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Meal time <span className="normal-case font-normal text-gray-300">(optional)</span></p>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                {MEAL_CATEGORIES.map(cat => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setSelectedMealTime(prev => prev === cat.id ? null : cat.id)}
-                    className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
-                      selectedMealTime === cat.id
-                        ? "border-primary bg-purple-50 text-primary"
-                        : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
-                    }`}
-                  >
-                    <span className="text-xl">{cat.emoji}</span>
-                    <span>{cat.label}</span>
-                  </button>
-                ))}
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                Price range <span className="normal-case font-normal text-gray-300">(optional — select one or more)</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  { id: "$",    label: "Budget",      sub: "Street food, casual" },
+                  { id: "$$",   label: "Moderate",    sub: "Neighbourhood restaurant" },
+                  { id: "$$$",  label: "Upscale",     sub: "Smart casual" },
+                  { id: "$$$$", label: "Fine dining",  sub: "Tasting menus" },
+                ] as { id: string; label: string; sub: string }[]).map(tier => {
+                  const active = priceRange.includes(tier.id);
+                  return (
+                    <button
+                      key={tier.id}
+                      type="button"
+                      onClick={() => setPriceRange(prev =>
+                        prev.includes(tier.id) ? prev.filter(p => p !== tier.id) : [...prev, tier.id]
+                      )}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all ${
+                        active
+                          ? "border-primary bg-purple-50 text-primary"
+                          : "border-gray-200 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className="font-bold">{tier.id}</span>
+                      <span className="text-xs font-normal hidden sm:inline">{tier.label}</span>
+                      {active && <span className="text-primary text-xs">✓</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -558,18 +824,77 @@ export default function Explore() {
 
           {/* Search form */}
           <form onSubmit={handleSearch} className="bg-white rounded-lg shadow p-6 mb-8">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <CityAutocomplete
-                onSelect={handleCitySelect}
-                disabled={stage === "searching" || stage === "loading_restaurants"}
-              />
+            {/* Location mode toggle */}
+            <div className="flex gap-2 mb-4">
               <button
-                type="submit"
-                disabled={stage === "searching" || stage === "loading_restaurants"}
-                className="px-8 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-lg transition-colors"
+                type="button"
+                onClick={() => setLocationMode("city")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                  locationMode === "city"
+                    ? "border-primary bg-purple-50 text-primary"
+                    : "border-gray-200 text-gray-600 hover:border-purple-200"
+                }`}
               >
-                {stage === "searching" ? "Searching…" : isLocal ? "Discover" : "Find restaurants"}
+                🌍 A city
               </button>
+              <button
+                type="button"
+                onClick={requestLocation}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                  locationMode === "nearby"
+                    ? "border-primary bg-purple-50 text-primary"
+                    : "border-gray-200 text-gray-600 hover:border-purple-200"
+                }`}
+              >
+                {geoStatus === "locating" ? (
+                  <span className="animate-pulse">Locating…</span>
+                ) : (
+                  <>
+                    📍 Near me
+                    {geoStatus === "ready" && geoLabel && (
+                      <span className="font-normal text-xs text-gray-500 ml-1">{geoLabel}</span>
+                    )}
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              {locationMode === "city" ? (
+                <CityAutocomplete
+                  key={cityKey}
+                  initialValue={cityInput}
+                  onSelect={handleCitySelect}
+                  disabled={stage === "searching" || stage === "loading_restaurants"}
+                />
+              ) : (
+                <div className="flex-1 flex items-center px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500">
+                  {geoStatus === "locating" && <span className="animate-pulse">Detecting your location…</span>}
+                  {geoStatus === "ready" && <span className="text-gray-700">📍 {geoLabel}</span>}
+                  {geoStatus === "idle" && <span>Click Near me to use your location</span>}
+                  {searchMode === "local" && geoStatus === "ready" && (
+                    <span className="ml-auto text-xs text-amber-600 font-medium">Local dishes needs a city →</span>
+                  )}
+                </div>
+              )}
+              <div className="flex gap-3 sm:contents">
+                <button
+                  type="submit"
+                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
+                  className="flex-1 sm:flex-none px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors"
+                >
+                  {stage === "searching" || stage === "loading_restaurants" ? "Searching…" : searchMode === "local" ? "Discover" : "Find restaurants"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSurpriseMe}
+                  disabled={stage === "searching" || stage === "loading_restaurants"}
+                  title="Pick a random city, cuisine, and occasion for me"
+                  className="flex-shrink-0 px-4 py-3 border-2 border-primary text-primary rounded-lg hover:bg-purple-50 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors whitespace-nowrap"
+                >
+                  🎲 Surprise me
+                </button>
+              </div>
             </div>
           </form>
 
@@ -610,9 +935,14 @@ export default function Explore() {
                 <div className="text-4xl mb-4 animate-strong-pulse">🌍</div>
                 <p className="text-lg font-medium text-gray-700 mb-2">{statusMessage}</p>
                 <p className="text-sm text-gray-500">Gathering local reviews and recommendations — usually takes 20-40 seconds</p>
-                {stage === "searching" && activeDiscoverPrefs.length > 0 && (
+                {stage === "searching" && (activeDiscoverPrefs.length > 0 || priceRange.length > 0) && (
                   <div className="mt-4 flex flex-wrap justify-center items-center gap-2">
                     <span className="text-xs text-gray-400">Applying:</span>
+                    {priceRange.map(p => (
+                      <span key={p} className="text-xs px-2.5 py-1 bg-amber-50 text-amber-700 rounded-full font-medium border border-amber-100">
+                        {p}
+                      </span>
+                    ))}
                     {activeDiscoverPrefs.map(p => {
                       const opt = DIETARY_OPTIONS.find(o => o.id === p);
                       return (
@@ -712,7 +1042,7 @@ export default function Explore() {
           )}
 
           {/* Restaurants */}
-          {stage === "restaurants" && (selectedDish || !isLocal) && (
+          {stage === "restaurants" && (selectedDish || searchMode !== "local") && (
             <div ref={restaurantsRef} className="mb-8 space-y-4">
               {/* Dish description banner */}
               {selectedDish && (
@@ -743,114 +1073,270 @@ export default function Explore() {
                 </div>
               )}
 
-              <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex-1 min-w-0 pr-4">
-                  <h2 className="text-2xl font-bold text-dark mb-1">
-                    {selectedDish ? `Where locals go for ${selectedDish.name}` : `Best ${categoryLabel} in ${cityInput}`}
+              {/* Header */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-dark mb-0.5">
+                    {selectedDish
+                      ? `Where locals go for ${selectedDish.name}`
+                      : locationMode === "nearby" && geoLabel
+                        ? `Best ${categoryLabel} near ${geoLabel}`
+                        : `Best ${categoryLabel} in ${cityInput}`}
                   </h2>
                   <p className="text-gray-400 text-xs">Chosen using local reviews, reputation, and food expertise</p>
                 </div>
                 <button
                   onClick={() => {
-                    if (!isLocal) { setStage("idle"); setRestaurants([]); }
-                    else { setStage("dishes"); setSelectedDish(null); setRestaurants([]); }
+                    if (searchMode !== "local") { setStage("idle"); setRestaurants([]); setFocusCoords(null); setHighlightedRestaurantId(null); }
+                    else { setStage("dishes"); setSelectedDish(null); setRestaurants([]); setFocusCoords(null); setHighlightedRestaurantId(null); }
                   }}
-                  className="flex-shrink-0 text-sm text-gray-500 hover:text-gray-700"
+                  className="flex-shrink-0 text-sm text-gray-500 hover:text-gray-700 mt-1"
                 >
                   ← Back
                 </button>
               </div>
 
               {restaurants.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No restaurants found yet.</p>
+                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">No restaurants found yet.</div>
               ) : (
-                <div className="space-y-4">
-                  {restaurants.map((r) => {
-                    const badge = getRestaurantBadge(r);
-                    const badgeStyle: Record<string, string> = {
-                      "Hidden gem":          "bg-emerald-50 text-emerald-700",
-                      "Popular with locals": "bg-amber-50 text-amber-700",
-                      "Neighborhood favorite":"bg-orange-50 text-orange-700",
-                      "Tourist-heavy":       "bg-gray-100 text-gray-500",
-                      "Top pick":            "bg-violet-50 text-violet-700",
-                    };
-                    return (
-                      <div key={r.id || r.rank} className="p-5 rounded-xl border border-gray-100 hover:border-primary hover:shadow-sm transition-all">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="font-bold text-dark text-base">{r.name}</h3>
-                                {badge && (
-                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badgeStyle[badge] ?? "bg-gray-100 text-gray-600"}`}>
-                                    {badge}
-                                  </span>
-                                )}
-                              </div>
-                              {r.address && <p className="text-sm text-gray-400 mt-0.5">{r.address}</p>}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                  {/* Map */}
+                  <div className="lg:col-span-2 bg-white rounded-xl shadow overflow-hidden" style={{ height: 300 }}>
+                    <ItineraryMap
+                      items={mapItems}
+                      onPinClick={item => {
+                        setHighlightedRestaurantId(item.restaurant_id ?? null);
+                        if (item.latitude != null && item.longitude != null) {
+                          setFocusCoords({ lat: item.latitude, lng: item.longitude });
+                        }
+                        document.getElementById(`r-card-${item.restaurant_id}`)
+                          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                      }}
+                      selectedItem={null}
+                      focusCoords={focusCoords}
+                      highlightedRestaurantId={highlightedRestaurantId}
+                    />
+                  </div>
+
+                  {/* Restaurant list — uncapped on mobile (natural scroll), capped on desktop */}
+                  <div className="lg:col-span-1 space-y-3 lg:overflow-y-auto lg:max-h-[400px]">
+                    {restaurants.map((r) => {
+                      const badge = getRestaurantBadge(r);
+                      const badgeStyle: Record<string, string> = {
+                        "Hidden gem":           "bg-emerald-50 text-emerald-700",
+                        "Popular with locals":  "bg-amber-50 text-amber-700",
+                        "Neighborhood favorite":"bg-orange-50 text-orange-700",
+                        "Tourist-heavy":        "bg-gray-100 text-gray-500",
+                        "Top pick":             "bg-violet-50 text-violet-700",
+                      };
+                      const isHighlighted = highlightedRestaurantId === r.id;
+                      return (
+                        <div
+                          key={r.id || r.rank}
+                          id={`r-card-${r.id}`}
+                          onClick={() => {
+                            const next = isHighlighted ? null : r.id;
+                            setHighlightedRestaurantId(next);
+                            if (!isHighlighted && r.latitude != null && r.longitude != null) {
+                              setFocusCoords({ lat: r.latitude, lng: r.longitude });
+                            }
+                          }}
+                          className={`rounded-xl border cursor-pointer transition-all overflow-hidden ${
+                            isHighlighted
+                              ? "border-primary ring-1 ring-primary bg-purple-50"
+                              : "border-gray-100 hover:border-primary hover:shadow-sm bg-white"
+                          }`}
+                        >
+                          {/* Photo */}
+                          {r.photo_url && (
+                            <div className="w-full h-28 overflow-hidden">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={r.photo_url}
+                                alt={r.name}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
                             </div>
-                            <div className="text-right flex-shrink-0">
-                              {r.google_rating && (
-                                <div className="flex items-center gap-1">
-                                  <span className="text-violet-500">★</span>
-                                  <span className="font-semibold">{r.google_rating}</span>
-                                  {r.review_count && (
-                                    <span className="text-gray-400 text-xs">({r.review_count.toLocaleString()})</span>
+                          )}
+
+                          <div className="p-3">
+                          {/* color accent + header */}
+                          <div className="flex items-start gap-2 mb-1">
+                            <div className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: rankColor(r.rank) }} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h3 className="font-bold text-dark text-sm leading-snug">{r.name}</h3>
+                                  {badge && (
+                                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${badgeStyle[badge] ?? "bg-gray-100 text-gray-600"}`}>
+                                      {badge}
+                                    </span>
                                   )}
                                 </div>
+                                <div className="flex-shrink-0 text-right">
+                                  {r.google_rating && (
+                                    <div className="flex items-center gap-0.5">
+                                      <span className="text-violet-500 text-xs">★</span>
+                                      <span className="font-semibold text-xs">{r.google_rating}</span>
+                                    </div>
+                                  )}
+                                  {r.price_level && (
+                                    <span className={`text-xs font-medium ${
+                                      priceRange.length > 0 && priceRange.includes(r.price_level)
+                                        ? "text-amber-600"
+                                        : "text-gray-400"
+                                    }`}>{r.price_level}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {r.address && <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{r.address}</p>}
+                              {r.rank_rationale && (
+                                <p className="text-xs text-gray-500 italic mt-1 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
                               )}
-                              {r.price_level && <p className="text-gray-400 text-sm">{r.price_level}</p>}
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                {r.highlights.slice(0, 3).map((h, i) => (
+                                  <span key={i} className="px-1.5 py-0.5 bg-green-50 text-green-700 rounded-full text-xs">{h}</span>
+                                ))}
+                              </div>
+                              <div className="mt-2 flex gap-2 flex-wrap">
+                                <button
+                                  onClick={e => { e.stopPropagation(); setDetailRestaurant(r); }}
+                                  className="text-xs px-2 py-1 border border-gray-200 text-gray-600 rounded-lg hover:border-primary hover:text-primary transition-colors">
+                                  Details →
+                                </button>
+                                {savedRestaurantIds.has(r.id) ? (
+                                  <span className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">✓ Saved</span>
+                                ) : (
+                                  <button
+                                    onClick={e => { e.stopPropagation(); openSaveModal(selectedDish, cityInput.trim(), countryInput.trim(), r.id); }}
+                                    className="text-xs px-2 py-1 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors">
+                                    🗺️ Save
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          {r.rank_rationale && (
-                            <p className="text-sm text-gray-600 mt-2 italic leading-relaxed">&ldquo;{r.rank_rationale}&rdquo;</p>
-                          )}
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {r.highlights.slice(0, 4).map((h, i) => (
-                              <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">{h}</span>
-                            ))}
-                          </div>
-                          <div className="mt-3 flex gap-3 flex-wrap">
-                            {r.google_maps_url && (
-                              <a
-                                href={r.google_maps_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
-                              >
-                                📍 Google Maps
-                              </a>
-                            )}
-                            {savedRestaurantIds.has(r.id) ? (
-                              <span className="text-xs px-3 py-1.5 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">
-                                ✓ Saved
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => openSaveModal(selectedDish, cityInput.trim(), countryInput.trim(), r.id)}
-                                className="text-xs px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 transition-colors"
-                              >
-                                🗺️ Save here
-                              </button>
-                            )}
-                          </div>
+                          </div>{/* /p-3 */}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+
                 </div>
               )}
-              </div>
             </div>
           )}
 
         </div>
+        {/* Restaurant detail modal */}
+        {detailRestaurant && (
+          <Portal>
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 px-4" onClick={() => setDetailRestaurant(null)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                {/* Photo */}
+                {detailRestaurant.photo_url && (
+                  <div className="w-full h-52 flex-shrink-0 overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={detailRestaurant.photo_url} alt={detailRestaurant.name} className="w-full h-full object-cover" />
+                  </div>
+                )}
+
+                <div className="p-6 overflow-y-auto">
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-3 mb-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: rankColor(detailRestaurant.rank) }} />
+                      <h2 className="text-xl font-bold text-dark leading-snug">{detailRestaurant.name}</h2>
+                    </div>
+                    <button onClick={() => setDetailRestaurant(null)} className="flex-shrink-0 text-gray-400 hover:text-gray-600 text-lg leading-none mt-0.5">✕</button>
+                  </div>
+
+                  {/* Meta row */}
+                  <div className="flex items-center gap-3 mb-4 flex-wrap">
+                    {detailRestaurant.google_rating && (
+                      <span className="flex items-center gap-1 text-sm font-semibold text-violet-600">
+                        {"★".repeat(Math.round(detailRestaurant.google_rating))}
+                        <span className="text-gray-700 ml-0.5">{detailRestaurant.google_rating}</span>
+                        {detailRestaurant.review_count && (
+                          <span className="text-gray-400 font-normal text-xs ml-0.5">({detailRestaurant.review_count.toLocaleString()})</span>
+                        )}
+                      </span>
+                    )}
+                    {detailRestaurant.price_level && (
+                      <span className="text-sm font-medium text-amber-600">{detailRestaurant.price_level}</span>
+                    )}
+                    {detailRestaurant.address && (
+                      <span className="text-xs text-gray-400">{detailRestaurant.address}</span>
+                    )}
+                  </div>
+
+                  {/* Rationale */}
+                  {detailRestaurant.rank_rationale && (
+                    <p className="text-sm text-gray-600 italic mb-4 leading-relaxed">&ldquo;{detailRestaurant.rank_rationale}&rdquo;</p>
+                  )}
+
+                  {/* Highlights */}
+                  {detailRestaurant.highlights.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-4">
+                      {detailRestaurant.highlights.map((h, i) => (
+                        <span key={i} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{h}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Reviews */}
+                  {detailRestaurant.reviews && detailRestaurant.reviews.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">What people say</p>
+                      <div className="space-y-2">
+                        {detailRestaurant.reviews.map((rev, i) => (
+                          <div key={i} className="bg-gray-50 rounded-lg p-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-semibold text-gray-700">{rev.author}</span>
+                              {rev.rating && <span className="text-violet-400 text-xs">{"★".repeat(Math.round(rev.rating))}</span>}
+                            </div>
+                            <p className="text-xs text-gray-600 leading-relaxed">{rev.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                    {detailRestaurant.google_maps_url && (
+                      <a href={detailRestaurant.google_maps_url} target="_blank" rel="noopener noreferrer"
+                        className="flex-1 text-center text-sm px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 font-medium transition-colors">
+                        📍 Open in Maps
+                      </a>
+                    )}
+                    {savedRestaurantIds.has(detailRestaurant.id) ? (
+                      <span className="flex-1 text-center text-sm px-4 py-3 bg-green-50 text-green-700 rounded-lg border border-green-200 font-medium">✓ Saved</span>
+                    ) : (
+                      <button
+                        onClick={() => { setDetailRestaurant(null); openSaveModal(selectedDish, cityInput.trim(), countryInput.trim(), detailRestaurant.id); }}
+                        className="flex-1 text-sm px-4 py-3 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 border border-amber-200 font-medium transition-colors">
+                        🗺️ Save to list
+                      </button>
+                    )}
+                    <button onClick={() => setDetailRestaurant(null)}
+                      className="sm:flex-none text-sm px-4 py-3 border border-gray-200 text-gray-600 rounded-lg hover:border-gray-300 transition-colors">
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Portal>
+        )}
+
         {/* Save modal */}
         {saveModal && (
           <Portal>
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
               <h2 className="text-lg font-bold text-dark mb-1">Save this dish</h2>
               <p className="text-sm text-gray-500 mb-5">
                 <span className="font-medium text-gray-800">{saveModal.dishName}</span>

@@ -49,8 +49,15 @@ interface ItineraryItem {
   latitude: number | null;
   longitude: number | null;
   restaurant_ids: string[];
+  category_type: "world_cuisine" | "occasion" | null;
 }
 
+
+interface ReviewSnippet {
+  author: string;
+  rating: number | null;
+  text: string;
+}
 
 interface Restaurant {
   id: string;
@@ -65,6 +72,8 @@ interface Restaurant {
   highlights: string[];
   latitude: number | null;
   longitude: number | null;
+  photo_url: string | null;
+  reviews: ReviewSnippet[];
 }
 
 interface PassportEntry {
@@ -108,6 +117,7 @@ export default function Plan() {
   const [restaurantCache, setRestaurantCache] = useState<Record<string, Restaurant>>({});
   const [loadingRestaurants, setLoadingRestaurants] = useState(false);
   const [markingEaten, setMarkingEaten] = useState<Set<string>>(new Set());
+  const [detailRestaurant, setDetailRestaurant] = useState<Restaurant | null>(null);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string | null>(null);
   const [rankingRestaurants, setRankingRestaurants] = useState(false);
   const [rankingStatus, setRankingStatus] = useState("");
@@ -396,9 +406,14 @@ export default function Plan() {
     try {
       const token = await getToken();
       const endpoint = item.dish_id ? "/api/rank-restaurants" : "/api/rank-by-category";
+      if (!item.dish_id && !item.category_type) {
+        showToast("error", "Cannot find restaurants: category type is missing for this item.");
+        setRankingRestaurants(false);
+        return;
+      }
       const body = item.dish_id
         ? { dish_id: item.dish_id, dish_name: item.dish_name, city: item.city_name, country: item.country }
-        : { category: item.dish_name, city: item.city_name, country: item.country };
+        : { category: item.dish_name, category_type: item.category_type, city: item.city_name, country: item.country };
       const res = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -937,6 +952,12 @@ export default function Plan() {
                                                 {markingEaten.has(r.id) ? "Saving…" : "✓ Already Been"}
                                               </button>
                                             )}
+                                            {(r.photo_url || (r.reviews && r.reviews.length > 0)) && (
+                                              <button onClick={e => { e.stopPropagation(); setDetailRestaurant(r); }}
+                                                className="text-xs px-3 py-1 border border-gray-200 text-gray-600 rounded-lg hover:border-primary hover:text-primary transition-colors">
+                                                Details
+                                              </button>
+                                            )}
                                             {r.google_maps_url && (
                                               <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-xs text-blue-600 hover:underline">📍 Maps</a>
                                             )}
@@ -973,6 +994,12 @@ export default function Plan() {
                                                 className="text-xs px-3 py-1 bg-primary text-white rounded-lg hover:bg-purple-700 font-medium transition-colors">
                                                 ＋ Add
                                               </button>
+                                              {(r.photo_url || (r.reviews && r.reviews.length > 0)) && (
+                                                <button onClick={e => { e.stopPropagation(); setDetailRestaurant(r); }}
+                                                  className="text-xs px-3 py-1 border border-gray-200 text-gray-600 rounded-lg hover:border-primary hover:text-primary transition-colors">
+                                                  Details
+                                                </button>
+                                              )}
                                               {r.google_maps_url && (
                                                 <a href={r.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">📍 Maps</a>
                                               )}
@@ -1026,7 +1053,7 @@ export default function Plan() {
 
         {eatenDateModal && (
           <Portal>
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000] p-4">
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
                 <h2 className="text-lg font-bold text-dark mb-1">Log to Passport</h2>
                 <p className="text-sm text-gray-500 mb-5">{eatenDateModal.label}</p>
@@ -1059,6 +1086,92 @@ export default function Plan() {
             </div>
           </Portal>
         )}
+
+      {/* Restaurant detail modal */}
+      {detailRestaurant && (
+        <Portal>
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 px-4" onClick={() => setDetailRestaurant(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+              {/* Photo */}
+              {detailRestaurant.photo_url && (
+                <div className="w-full h-52 overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={detailRestaurant.photo_url} alt={detailRestaurant.name} className="w-full h-full object-cover" />
+                </div>
+              )}
+
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h2 className="text-xl font-bold text-dark leading-snug">{detailRestaurant.name}</h2>
+                  <button onClick={() => setDetailRestaurant(null)} className="flex-shrink-0 text-gray-400 hover:text-gray-600 text-lg leading-none mt-0.5">✕</button>
+                </div>
+                <div className="flex items-center gap-3 mb-3 flex-wrap">
+                  {detailRestaurant.google_rating && (
+                    <span className="flex items-center gap-1 text-sm font-semibold text-violet-600">
+                      {"★".repeat(Math.round(detailRestaurant.google_rating))}
+                      <span className="text-gray-700">{detailRestaurant.google_rating}</span>
+                      {detailRestaurant.review_count && <span className="text-gray-400 font-normal text-xs">({detailRestaurant.review_count.toLocaleString()} reviews)</span>}
+                    </span>
+                  )}
+                  {detailRestaurant.price_level && (
+                    <span className="text-sm font-medium text-amber-600">{detailRestaurant.price_level}</span>
+                  )}
+                  {detailRestaurant.address && (
+                    <span className="text-xs text-gray-400">{detailRestaurant.address}</span>
+                  )}
+                </div>
+
+                {/* Rationale */}
+                {detailRestaurant.rank_rationale && (
+                  <p className="text-sm text-gray-600 italic mb-4">&ldquo;{detailRestaurant.rank_rationale}&rdquo;</p>
+                )}
+
+                {/* Highlights */}
+                {detailRestaurant.highlights.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {detailRestaurant.highlights.map((h, i) => (
+                      <span key={i} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{h}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Reviews */}
+                {detailRestaurant.reviews && detailRestaurant.reviews.length > 0 && (
+                  <div className="space-y-3 mb-4">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">What people say</p>
+                    {detailRestaurant.reviews.map((rev, i) => (
+                      <div key={i} className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-semibold text-gray-700">{rev.author}</span>
+                          {rev.rating && (
+                            <span className="text-violet-400 text-xs">{"★".repeat(Math.round(rev.rating))}</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{rev.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-1">
+                  {detailRestaurant.google_maps_url && (
+                    <a href={detailRestaurant.google_maps_url} target="_blank" rel="noopener noreferrer"
+                      className="flex-1 text-center text-sm px-4 py-2.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 font-medium transition-colors">
+                      📍 Open in Maps
+                    </a>
+                  )}
+                  <button onClick={() => setDetailRestaurant(null)}
+                    className="px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:border-gray-300 text-sm transition-colors">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
 
       </Layout>
     </>

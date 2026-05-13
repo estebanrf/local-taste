@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/router";
 import Layout from "../components/Layout";
@@ -10,6 +11,9 @@ import Link from "next/link";
 import Head from "next/head";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
 import CityAutocomplete from "../components/CityAutocomplete";
+import { CITY_COORDS } from "../lib/cities";
+
+const ItineraryMap = dynamic(() => import("../components/ItineraryMap"), { ssr: false });
 
 interface PassportEntry {
   id: string;
@@ -49,6 +53,12 @@ export default function Passport() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [cityFilter, setCityFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [passportView, setPassportView] = useState<"list" | "map">("list");
+  const [mapExpandedCity, setMapExpandedCity] = useState<string | null>(null);
+  const [mapRestaurants, setMapRestaurants] = useState<{ id: string; name: string; latitude: number | null; longitude: number | null; google_rating: number | null; address: string | null; google_maps_url: string | null }[]>([]);
+  const [mapLoadingRestaurants, setMapLoadingRestaurants] = useState(false);
+  const [mapSelectedRestaurantId, setMapSelectedRestaurantId] = useState<string | null>(null);
+  const [mapFocusCoords, setMapFocusCoords] = useState<{ lat: number; lng: number } | null>(null);
   const PAGE_SIZE = 10;
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [displayName, setDisplayName] = useState("");
@@ -92,6 +102,34 @@ export default function Passport() {
       setLoading(false);
     }
   };
+
+  const openMapCity = useCallback(async (city: string, restaurantIds: string[]) => {
+    if (mapExpandedCity === city) {
+      setMapExpandedCity(null);
+      setMapRestaurants([]);
+      setMapSelectedRestaurantId(null);
+      setMapFocusCoords(null);
+      return;
+    }
+    setMapExpandedCity(city);
+    setMapSelectedRestaurantId(null);
+    const coords = CITY_COORDS[city];
+    if (coords) setMapFocusCoords({ lat: coords[0], lng: coords[1] });
+    const uniqueIds = [...new Set(restaurantIds)].filter(Boolean);
+    if (uniqueIds.length === 0) { setMapRestaurants([]); return; }
+    setMapLoadingRestaurants(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/restaurants/by-ids`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: uniqueIds }),
+      });
+      if (res.ok) setMapRestaurants((await res.json()).restaurants || []);
+    } catch { /* silent */ } finally {
+      setMapLoadingRestaurants(false);
+    }
+  }, [mapExpandedCity, getToken]);
 
   useEffect(() => {
     if (isUserLoaded) load();
@@ -382,9 +420,72 @@ export default function Passport() {
             const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
             const safePage = Math.min(currentPage, totalPages);
             const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+            // Collect all restaurant IDs grouped by city
+            const cityRestaurantIds: Record<string, string[]> = {};
+            for (const e of entries) {
+              if (e.restaurant_id) {
+                if (!cityRestaurantIds[e.city_name]) cityRestaurantIds[e.city_name] = [];
+                if (!cityRestaurantIds[e.city_name].includes(e.restaurant_id)) {
+                  cityRestaurantIds[e.city_name].push(e.restaurant_id);
+                }
+              }
+            }
+
+            // Build map items: either city pins or restaurant pins for expanded city
+            const cityMapItems = mapExpandedCity
+              ? mapRestaurants
+                  .filter(r => r.latitude != null && r.longitude != null)
+                  .map(r => ({
+                    id: r.id,
+                    dish_id: null,
+                    dish_name: r.name,
+                    city_name: mapExpandedCity,
+                    country: entries.find(e => e.city_name === mapExpandedCity)?.country ?? "",
+                    notes: r.address,
+                    dish_description: null,
+                    cuisine_type: null,
+                    tags: [],
+                    dish_rank: null,
+                    city_id: null,
+                    eaten_count: 1,
+                    created_at: "",
+                    latitude: r.latitude,
+                    longitude: r.longitude,
+                    restaurant_ids: [r.id],
+                    restaurant_name: r.name,
+                    restaurant_id: r.id,
+                    color: "#7c3aed",
+                  }))
+              : cities.map(city => {
+                  const cityEntries = entries.filter(e => e.city_name === city);
+                  const first = cityEntries[0];
+                  const coords = CITY_COORDS[city];
+                  return {
+                    id: city,
+                    dish_id: null,
+                    dish_name: `${cityEntries.length} dish${cityEntries.length !== 1 ? "es" : ""}`,
+                    city_name: first.city_name,
+                    country: first.country,
+                    notes: null,
+                    dish_description: null,
+                    cuisine_type: null,
+                    tags: [],
+                    dish_rank: null,
+                    city_id: null,
+                    eaten_count: cityEntries.length,
+                    created_at: first.tasted_at,
+                    latitude: coords ? coords[0] : null,
+                    longitude: coords ? coords[1] : null,
+                    restaurant_ids: cityRestaurantIds[city] ?? [],
+                    restaurant_name: null,
+                    color: "#7c3aed",
+                  };
+                });
+
             return (
             <>
-              {/* Filter + count bar */}
+              {/* Filter + view toggle bar */}
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <select
                   value={cityFilter}
@@ -396,13 +497,67 @@ export default function Passport() {
                     <option key={c} value={c}>{c} ({entries.filter(e => e.city_name === c).length})</option>
                   ))}
                 </select>
-                <span className="text-sm text-gray-500">
+                <span className="text-sm text-gray-500 flex-1">
                   {filtered.length} entr{filtered.length !== 1 ? "ies" : "y"}
-                  {totalPages > 1 && ` · page ${safePage} of ${totalPages}`}
+                  {totalPages > 1 && passportView === "list" && ` · page ${safePage} of ${totalPages}`}
                 </span>
+                {/* Map / List toggle */}
+                <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    onClick={() => setPassportView("list")}
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${passportView === "list" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-50"}`}
+                  >
+                    ☰ List
+                  </button>
+                  <button
+                    onClick={() => setPassportView("map")}
+                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${passportView === "map" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-50"}`}
+                  >
+                    🌍 Map
+                  </button>
+                </div>
               </div>
 
-            <div className="space-y-3">
+              {/* World map */}
+              {passportView === "map" && (
+                <div className="bg-white rounded-xl shadow overflow-hidden mb-6" style={{ height: 420 }}>
+                  {mapExpandedCity && (
+                    <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100">
+                      <button
+                        onClick={() => { setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedRestaurantId(null); setMapFocusCoords(null); }}
+                        className="text-xs text-primary hover:underline flex items-center gap-1"
+                      >
+                        ← All cities
+                      </button>
+                      <span className="text-xs text-gray-400">·</span>
+                      <span className="text-xs font-medium text-dark">{mapExpandedCity}</span>
+                      {mapLoadingRestaurants && <span className="text-xs text-gray-400 animate-pulse ml-1">Loading…</span>}
+                    </div>
+                  )}
+                  <div style={{ height: mapExpandedCity ? 380 : 420 }}>
+                    <ItineraryMap
+                      items={cityMapItems}
+                      selectedItem={mapSelectedRestaurantId ? cityMapItems.find(m => m.id === mapSelectedRestaurantId) ?? null : null}
+                      onPinClick={item => {
+                        if (!mapExpandedCity) {
+                          // city pin clicked → drill in
+                          openMapCity(item.city_name, cityRestaurantIds[item.city_name] ?? []);
+                        } else {
+                          // restaurant pin clicked → highlight + filter list
+                          setMapSelectedRestaurantId(prev => prev === item.id ? null : item.id);
+                          if (item.latitude && item.longitude) setMapFocusCoords({ lat: item.latitude, lng: item.longitude });
+                          setCityFilter(mapExpandedCity);
+                          setCurrentPage(1);
+                        }
+                      }}
+                      focusCoords={mapFocusCoords}
+                      highlightedRestaurantId={mapSelectedRestaurantId}
+                    />
+                  </div>
+                </div>
+              )}
+
+            {passportView === "list" && <div className="space-y-3">
               {paged.map(entry => (
                 <div key={entry.id} className="bg-white rounded-lg shadow p-4">
                   {editingId === entry.id ? (
@@ -490,10 +645,10 @@ export default function Passport() {
                   )}
                 </div>
               ))}
-            </div>
+            </div>}
 
               {/* Pagination */}
-              {totalPages > 1 && (
+              {passportView === "list" && totalPages > 1 && (
                 <div className="flex items-center justify-center gap-2 mt-6">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}

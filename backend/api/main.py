@@ -24,7 +24,7 @@ from src.schemas import (
     PassportEntryUpdate,
     ItineraryCreate,
     ItineraryItemCreate,
-    JobType, JobStatus,
+    JobType, JobStatus, CategoryType,
 )
 
 load_dotenv(override=True)
@@ -114,13 +114,18 @@ class RankRestaurantsRequest(BaseModel):
     city: str = Field(description="City name for search context")
     country: str = Field(description="Country name for search context")
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+    price_range: Optional[List[str]] = Field(default_factory=list, description="Preferred price tiers e.g. ['$', '$$']")
 
 
 class RankByCategoryRequest(BaseModel):
-    category: str = Field(description="Food category, e.g. 'Pizza'")
-    city: str = Field(description="City name for search context")
-    country: str = Field(description="Country name for search context")
+    category: str = Field(description="Food category, e.g. 'Japanese'")
+    category_type: CategoryType = Field(description="'world_cuisine' or 'occasion'")
+    city: str = Field(description="City name for search context (may be empty for near-me searches)")
+    country: str = Field(description="Country name for search context (may be empty for near-me searches)")
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
+    price_range: Optional[List[str]] = Field(default_factory=list, description="Preferred price tiers e.g. ['$', '$$']")
+    latitude: Optional[float] = Field(default=None, description="User latitude for near-me search")
+    longitude: Optional[float] = Field(default=None, description="User longitude for near-me search")
 
 
 class RankRestaurantsResponse(BaseModel):
@@ -299,7 +304,7 @@ async def rank_restaurants(request: RankRestaurantsRequest, clerk_user_id: str =
                 **request.model_dump(),
             }),
         )
-        logger.info(f"Invoked restaurant-ranker async: {job_id}")
+        logger.info(f"Invoked restaurant-ranker async: {job_id} price_range={request.price_range}")
 
         return RankRestaurantsResponse(job_id=str(job_id), message="Restaurant ranking started.")
     except HTTPException:
@@ -316,33 +321,30 @@ async def rank_by_category(request: RankByCategoryRequest, clerk_user_id: str = 
     bypassing the dish discovery step.
     """
     try:
-        logger.info(f"rank_by_category: category={request.category} city={request.city} country={request.country} dietary={request.dietary_preferences}")
+        logger.info(f"rank_by_category: category={request.category} category_type={request.category_type} city={request.city} country={request.country} dietary={request.dietary_preferences}")
 
+        payload = {
+            "dish_id": "",
+            "dish_name": request.category,
+            "city": request.city,
+            "country": request.country,
+            "category_mode": True,
+            "category_type": request.category_type,
+            "dietary_preferences": request.dietary_preferences or [],
+            "price_range": request.price_range or [],
+            "latitude": request.latitude,
+            "longitude": request.longitude,
+        }
         job_id = db.jobs.create_job(
             clerk_user_id=clerk_user_id,
             job_type="restaurant_ranking",
-            request_payload={
-                "dish_id": "",
-                "dish_name": request.category,
-                "city": request.city,
-                "country": request.country,
-                "category_mode": True,
-                "dietary_preferences": request.dietary_preferences or [],
-            },
+            request_payload=payload,
         )
 
         lambda_client.invoke(
             FunctionName=RESTAURANT_RANKER_FUNCTION,
             InvocationType="Event",
-            Payload=json.dumps({
-                "job_id": str(job_id),
-                "dish_id": "",
-                "dish_name": request.category,
-                "city": request.city,
-                "country": request.country,
-                "category_mode": True,
-                "dietary_preferences": request.dietary_preferences or [],
-            }),
+            Payload=json.dumps({"job_id": str(job_id), **payload}),
         )
         logger.info(f"Invoked restaurant-ranker (category mode) async: {job_id}")
         return RankRestaurantsResponse(job_id=str(job_id), message="Category restaurant ranking started.")
@@ -557,6 +559,7 @@ async def add_item_to_itinerary(
                 if item.restaurant_id:
                     db.itinerary.append_restaurant(existing["id"], item.restaurant_id)
                 return {"id": existing["id"], "ok": True, "already_exists": True}
+            # category_type is stored on create (world_cuisine or occasion)
 
         item.itinerary_id = itinerary_id
         item_id = db.itinerary.create_item(clerk_user_id=clerk_user_id, item=item, dish_name=dish_name, city_name=city_name, country=country)
