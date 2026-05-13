@@ -103,8 +103,8 @@ export default function Passport() {
     }
   };
 
-  const openMapCity = useCallback(async (city: string, restaurantIds: string[]) => {
-    if (mapExpandedCity === city) {
+  const openMapCity = useCallback(async (city: string, restaurantIds: string[], force = false) => {
+    if (!force && mapExpandedCity === city) {
       setMapExpandedCity(null);
       setMapRestaurants([]);
       setMapSelectedRestaurantId(null);
@@ -268,6 +268,32 @@ export default function Passport() {
     </div>
   );
 
+  // Collect all restaurant IDs grouped by city — available to event handlers
+  const cityRestaurantIds: Record<string, string[]> = {};
+  for (const e of entries) {
+    if (e.restaurant_id) {
+      if (!cityRestaurantIds[e.city_name]) cityRestaurantIds[e.city_name] = [];
+      if (!cityRestaurantIds[e.city_name].includes(e.restaurant_id)) {
+        cityRestaurantIds[e.city_name].push(e.restaurant_id);
+      }
+    }
+  }
+
+  const handleCityFilterChange = (value: string) => {
+    setCityFilter(value);
+    setCurrentPage(1);
+    if (passportView === "map") {
+      if (value === "all") {
+        setMapExpandedCity(null);
+        setMapRestaurants([]);
+        setMapSelectedRestaurantId(null);
+        setMapFocusCoords(null);
+      } else {
+        openMapCity(value, cityRestaurantIds[value] ?? [], true);
+      }
+    }
+  };
+
   return (
     <>
       <Head><title>My Passport - Local Taste</title></Head>
@@ -421,17 +447,6 @@ export default function Passport() {
             const safePage = Math.min(currentPage, totalPages);
             const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-            // Collect all restaurant IDs grouped by city
-            const cityRestaurantIds: Record<string, string[]> = {};
-            for (const e of entries) {
-              if (e.restaurant_id) {
-                if (!cityRestaurantIds[e.city_name]) cityRestaurantIds[e.city_name] = [];
-                if (!cityRestaurantIds[e.city_name].includes(e.restaurant_id)) {
-                  cityRestaurantIds[e.city_name].push(e.restaurant_id);
-                }
-              }
-            }
-
             // Build map items: either city pins or restaurant pins for expanded city
             const cityMapItems = mapExpandedCity
               ? mapRestaurants
@@ -489,7 +504,7 @@ export default function Passport() {
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <select
                   value={cityFilter}
-                  onChange={e => { setCityFilter(e.target.value); setCurrentPage(1); }}
+                  onChange={e => handleCityFilterChange(e.target.value)}
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white"
                 >
                   <option value="all">All cities ({entries.length})</option>
@@ -510,7 +525,12 @@ export default function Passport() {
                     ☰ List
                   </button>
                   <button
-                    onClick={() => setPassportView("map")}
+                    onClick={() => {
+                      setPassportView("map");
+                      if (cityFilter !== "all") {
+                        openMapCity(cityFilter, cityRestaurantIds[cityFilter] ?? [], true);
+                      }
+                    }}
                     className={`px-3 py-1.5 text-sm font-medium transition-colors ${passportView === "map" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-50"}`}
                   >
                     🌍 Map
@@ -524,7 +544,7 @@ export default function Passport() {
                   {mapExpandedCity && (
                     <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100">
                       <button
-                        onClick={() => { setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedRestaurantId(null); setMapFocusCoords(null); }}
+                        onClick={() => { setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedRestaurantId(null); setMapFocusCoords(null); setCityFilter("all"); setCurrentPage(1); }}
                         className="text-xs text-primary hover:underline flex items-center gap-1"
                       >
                         ← All cities
