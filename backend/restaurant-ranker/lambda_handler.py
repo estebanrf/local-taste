@@ -45,7 +45,16 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
         end = raw.rfind("}") + 1
         if start == -1 or end == 0:
             raise ValueError("No JSON found in agent response")
-        data = json.loads(raw[start:end])
+        json_str = raw[start:end]
+        # Remove control characters and replace literal newlines/tabs — these appear
+        # when the LLM copies review text verbatim and forgets to escape them in JSON strings.
+        json_str = re.sub(r"[\x00-\x09\x0b\x0c\x0e-\x1f]", "", json_str)
+        json_str = json_str.replace("\n", " ").replace("\r", " ")
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError as je:
+            logger.error(f"RestaurantRanker: JSON parse error after cleaning: {je}. Snippet: {json_str[max(0,je.pos-100):je.pos+100]!r}")
+            raise
 
         restaurants = data.get("restaurants", [])
         logger.info(f"RestaurantRanker: parsed JSON, {len(restaurants)} restaurants found")
@@ -88,9 +97,9 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
             return saved_id
 
         if dish_id and not category_mode:
-            db.restaurants.delete_by_dish(dish_id)
-            for r in restaurants[:5]:
-                _build_and_save(r, dish_id)
+            # Save new rows first — only delete old ones after all saves succeed
+            new_ids = [_build_and_save(r, dish_id) for r in restaurants[:5]]
+            db.restaurants.delete_by_dish_except(dish_id, new_ids)
             restaurants = db.restaurants.find_by_dish(dish_id)
         else:
             # Category mode — persist to DB so restaurant_ids remain valid across sessions

@@ -142,6 +142,16 @@ class Restaurants(BaseModel):
     def delete_by_dish(self, dish_id: str) -> int:
         return self.db.delete('restaurants', "dish_id = :dish_id::uuid", {'dish_id': dish_id})
 
+    def delete_by_dish_except(self, dish_id: str, keep_ids: List[str]) -> int:
+        if not keep_ids:
+            return self.delete_by_dish(dish_id)
+        placeholders = ", ".join(f":keep{i}::uuid" for i in range(len(keep_ids)))
+        sql = f"DELETE FROM restaurants WHERE dish_id = :dish_id::uuid AND id NOT IN ({placeholders})"
+        params = [{'name': 'dish_id', 'value': {'stringValue': dish_id}}]
+        params += [{'name': f'keep{i}', 'value': {'stringValue': id_}} for i, id_ in enumerate(keep_ids)]
+        response = self.db.execute(sql, params)
+        return response.get('numberOfRecordsUpdated', 0)
+
 
 class PassportEntries(BaseModel):
     table_name = 'passport_entries'

@@ -8,7 +8,6 @@ const ItineraryMap = dynamic(() => import("../components/ItineraryMap"), { ssr: 
 import { API_URL } from "../lib/config";
 import { showToast } from "../components/Toast";
 import { DIETARY_OPTIONS, parseDietaryPrefs } from "../lib/dietary";
-import { CITIES } from "../lib/cities";
 import Portal from "../components/Portal";
 import Link from "next/link";
 import Head from "next/head";
@@ -121,6 +120,9 @@ export default function Explore() {
   const handleCitySelect = useCallback((city: string, country: string) => {
     setCityInput(city);
     setCountryInput(country);
+    // user manually picked a city — drop GPS coords so they don't bias restaurant search
+    setGeoCoords(null);
+    setLocationMode("city");
   }, []);
   const [searchMode, setSearchMode] = useState<SearchMode>("local");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -204,6 +206,7 @@ export default function Explore() {
 
   const requestLocation = () => {
     if (geoCoords) {
+      // already have coords — just re-apply
       setLocationMode("nearby");
       return;
     }
@@ -217,16 +220,21 @@ export default function Explore() {
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         setGeoCoords({ lat: latitude, lng: longitude });
-        // Reverse geocode via Nominatim
+        // Reverse geocode to get city name for the city input
         try {
           const res = await fetch(
             `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10`,
             { headers: { "Accept-Language": "en" } }
           );
           const data = await res.json();
-          const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county || "";
-          const country = data.address?.country || "";
-          setGeoLabel(city ? `${city}${country ? `, ${country}` : ""}` : "your location");
+          const cityName = data.address?.city || data.address?.town || data.address?.village || data.address?.county || "";
+          const countryName = data.address?.country || "";
+          if (cityName) {
+            setCityInput(cityName);
+            setCountryInput(countryName);
+            setCityKey(k => k + 1);
+          }
+          setGeoLabel(cityName ? `${cityName}${countryName ? `, ${countryName}` : ""}` : "your location");
         } catch {
           setGeoLabel("your location");
         }
@@ -368,29 +376,12 @@ export default function Explore() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (locationMode === "nearby") {
-      if (geoStatus === "locating") return;
-      if (!geoCoords) {
-        requestLocation();
-        return;
-      }
-      if (searchMode === "local") {
-        showToast("error", "Local dishes requires a specific city — switch to A city or choose World cuisine / Occasion.");
-        return;
-      }
-      await runSearch({
-        city: geoLabel,
-        country: "",
-        mode: searchMode,
-        category: selectedCategory,
-        dietary: useMyPrefs ? dietaryPrefs : customPrefs,
-        price: priceRange,
-        latitude: geoCoords.lat,
-        longitude: geoCoords.lng,
-      });
+    if (geoStatus === "locating") return;
+    if (locationMode === "nearby" && !geoCoords) {
+      requestLocation();
       return;
     }
-    if (!cityInput.trim() || !countryInput.trim()) {
+    if (!cityInput.trim()) {
       showToast("error", "Please select a city from the list");
       return;
     }
@@ -401,37 +392,11 @@ export default function Explore() {
       category: selectedCategory,
       dietary: useMyPrefs ? dietaryPrefs : customPrefs,
       price: priceRange,
+      latitude: geoCoords?.lat ?? null,
+      longitude: geoCoords?.lng ?? null,
     });
   };
 
-  const handleSurpriseMe = async () => {
-    if (stage === "searching" || stage === "loading_restaurants") return;
-    const randomCity = CITIES[Math.floor(Math.random() * CITIES.length)];
-    const modes: SearchMode[] = ["local", "world_cuisine", "occasion"];
-    const randomMode = modes[Math.floor(Math.random() * modes.length)];
-    let randomCategory: string | null = null;
-    if (randomMode === "world_cuisine") {
-      randomCategory = WORLD_CUISINES[Math.floor(Math.random() * WORLD_CUISINES.length)].id;
-    } else if (randomMode === "occasion") {
-      randomCategory = OCCASIONS[Math.floor(Math.random() * OCCASIONS.length)].id;
-    }
-
-    setCityInput(randomCity.city);
-    setCountryInput(randomCity.country);
-    setSearchMode(randomMode);
-    setSelectedCategory(randomCategory);
-    setCategoryFilter("");
-    setCityKey(k => k + 1);
-
-    await runSearch({
-      city: randomCity.city,
-      country: randomCity.country,
-      mode: randomMode,
-      category: randomCategory,
-      dietary: useMyPrefs ? dietaryPrefs : customPrefs,
-      price: priceRange,
-    });
-  };
 
   const handleDishClick = async (dish: Dish) => {
     setSelectedDish(dish);
@@ -452,6 +417,7 @@ export default function Explore() {
           country: city?.country || "",
           dietary_preferences: dietaryPrefs,
           price_range: priceRange,
+          ...(geoCoords ? { latitude: geoCoords.lat, longitude: geoCoords.lng } : {}),
         }),
       });
       if (!res.ok) throw new Error("Failed to start restaurant search");
@@ -620,67 +586,69 @@ export default function Explore() {
           {/* Food category selector */}
           <div className="bg-white rounded-xl shadow p-6 mb-4">
 
-            {/* Step 1 — three-bucket selector */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5">
-              {([
-                { mode: "local" as SearchMode,        emoji: "🌍", title: "Local dishes",    sub: "The soul of the city" },
-                { mode: "world_cuisine" as SearchMode, emoji: "✈️", title: "World cuisine",  sub: "Foreign food in this city" },
-                { mode: "occasion" as SearchMode,      emoji: "☀️", title: "Occasion",        sub: "Brunch, rooftop, fine dining…" },
-              ] as { mode: SearchMode; emoji: string; title: string; sub: string }[]).map(opt => {
-                const nearbyDisabled = locationMode === "nearby" && opt.mode === "local";
-                return (
+            {/* Step 1 — mode selector: Local Dishes prominent, two secondaries below */}
+            <div className="flex flex-col gap-2 mb-5">
+              {/* Primary — Local Dishes */}
+              <button
+                type="button"
+                onClick={() => { setSearchMode("local"); setSelectedCategory(null); setCategoryFilter(""); }}
+                className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl border-2 font-semibold text-left transition-all ${
+                  searchMode === "local"
+                    ? "border-primary bg-purple-50 text-primary"
+                    : "border-gray-200 text-gray-700 hover:border-purple-200 hover:bg-gray-50"
+                }`}
+              >
+                <span className="text-3xl">🌍</span>
+                <div>
+                  <div className="font-bold text-base leading-tight">Local dishes</div>
+                  <div className="text-sm font-normal text-gray-500 mt-0.5">Discover the soul of the city — top 5 must-try dishes</div>
+                </div>
+                {searchMode === "local" && <span className="ml-auto text-primary text-sm">✓</span>}
+              </button>
+
+              {/* Secondary — World Cuisine + Occasion side by side */}
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { mode: "world_cuisine" as SearchMode, emoji: "✈️", title: "World cuisine", sub: "Foreign food in this city" },
+                  { mode: "occasion" as SearchMode,      emoji: "☀️", title: "Occasion",       sub: "Brunch, rooftop, fine dining…" },
+                ] as { mode: SearchMode; emoji: string; title: string; sub: string }[]).map(opt => (
                   <button
                     key={opt.mode}
                     type="button"
-                    onClick={() => {
-                      if (nearbyDisabled) return;
-                      setSearchMode(opt.mode); setSelectedCategory(null); setCategoryFilter("");
-                    }}
-                    title={nearbyDisabled ? "Local dishes requires a specific city" : undefined}
-                    className={`flex flex-col sm:flex-row items-center sm:items-start gap-1 sm:gap-3 px-2 sm:px-4 py-3 sm:py-4 rounded-xl border-2 font-semibold text-center sm:text-left transition-all ${
-                      nearbyDisabled
-                        ? "border-gray-100 text-gray-300 cursor-not-allowed opacity-50"
-                        : searchMode === opt.mode
-                          ? "border-primary bg-purple-50 text-primary"
-                          : "border-gray-200 text-gray-700 hover:border-purple-200"
+                    onClick={() => { setSearchMode(opt.mode); setSelectedCategory(null); setCategoryFilter(""); }}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 font-semibold text-left transition-all ${
+                      searchMode === opt.mode
+                        ? "border-primary bg-purple-50 text-primary"
+                        : "border-gray-200 text-gray-700 hover:border-purple-200 hover:bg-gray-50"
                     }`}
                   >
-                    <span className="text-xl sm:text-2xl">{opt.emoji}</span>
+                    <span className="text-xl">{opt.emoji}</span>
                     <div className="min-w-0">
-                      <div className="font-bold text-xs sm:text-sm leading-tight">{opt.title}</div>
-                      <div className="text-xs font-normal text-gray-500 hidden sm:block">{opt.sub}</div>
+                      <div className="font-bold text-sm leading-tight">{opt.title}</div>
+                      <div className="text-xs font-normal text-gray-500 hidden sm:block mt-0.5">{opt.sub}</div>
                     </div>
                   </button>
-                );
-              })}
+                ))}
+              </div>
             </div>
 
-            {/* Step 2 — cuisine chip grid */}
+            {/* Step 2 — cuisine carousel */}
             {searchMode === "world_cuisine" && (
               <div className="mb-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Select a cuisine</p>
-                  <input
-                    type="text"
-                    value={categoryFilter}
-                    onChange={e => setCategoryFilter(e.target.value)}
-                    placeholder="Filter…"
-                    className="ml-auto px-3 py-1 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary w-32"
-                  />
-                </div>
-                <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 gap-2">
-                  {WORLD_CUISINES.filter(c => c.label.toLowerCase().includes(categoryFilter.toLowerCase())).map(cat => (
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Select a cuisine</p>
+                <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+                  {WORLD_CUISINES.map(cat => (
                     <button
                       key={cat.id}
                       type="button"
                       onClick={() => setSelectedCategory(prev => prev === cat.id ? null : cat.id)}
-                      className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
+                      className={`flex-shrink-0 flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all w-20 ${
                         selectedCategory === cat.id
                           ? "border-primary bg-purple-50 text-primary"
                           : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
                       }`}
                     >
-                      <span className="text-xl">{cat.emoji}</span>
+                      <span className="text-2xl">{cat.emoji}</span>
                       <span className="text-center leading-tight">{cat.label}</span>
                     </button>
                   ))}
@@ -688,32 +656,23 @@ export default function Explore() {
               </div>
             )}
 
-            {/* Step 2 — occasion chip grid */}
+            {/* Step 2 — occasion carousel */}
             {searchMode === "occasion" && (
               <div className="mb-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Select an occasion</p>
-                  <input
-                    type="text"
-                    value={categoryFilter}
-                    onChange={e => setCategoryFilter(e.target.value)}
-                    placeholder="Filter…"
-                    className="ml-auto px-3 py-1 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary w-32"
-                  />
-                </div>
-                <div className="grid grid-cols-3 sm:grid-cols-6 md:grid-cols-8 gap-2">
-                  {OCCASIONS.filter(c => c.label.toLowerCase().includes(categoryFilter.toLowerCase())).map(cat => (
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Select an occasion</p>
+                <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+                  {OCCASIONS.map(cat => (
                     <button
                       key={cat.id}
                       type="button"
                       onClick={() => setSelectedCategory(prev => prev === cat.id ? null : cat.id)}
-                      className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl border-2 text-xs font-medium transition-all ${
+                      className={`flex-shrink-0 flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 text-xs font-medium transition-all w-20 ${
                         selectedCategory === cat.id
                           ? "border-primary bg-purple-50 text-primary"
                           : "border-gray-100 text-gray-600 hover:border-purple-200 hover:bg-gray-50"
                       }`}
                     >
-                      <span className="text-xl">{cat.emoji}</span>
+                      <span className="text-2xl">{cat.emoji}</span>
                       <span className="text-center leading-tight">{cat.label}</span>
                     </button>
                   ))}
@@ -860,22 +819,17 @@ export default function Explore() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
-              {locationMode === "city" ? (
+              {locationMode === "nearby" && geoStatus === "locating" ? (
+                <div className="flex-1 flex items-center px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500 animate-pulse">
+                  Detecting your location…
+                </div>
+              ) : (
                 <CityAutocomplete
                   key={cityKey}
                   initialValue={cityInput}
                   onSelect={handleCitySelect}
                   disabled={stage === "searching" || stage === "loading_restaurants"}
                 />
-              ) : (
-                <div className="flex-1 flex items-center px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500">
-                  {geoStatus === "locating" && <span className="animate-pulse">Detecting your location…</span>}
-                  {geoStatus === "ready" && <span className="text-gray-700">📍 {geoLabel}</span>}
-                  {geoStatus === "idle" && <span>Click Near me to use your location</span>}
-                  {searchMode === "local" && geoStatus === "ready" && (
-                    <span className="ml-auto text-xs text-amber-600 font-medium">Local dishes needs a city →</span>
-                  )}
-                </div>
               )}
               <div className="flex gap-3 sm:contents">
                 <button
@@ -884,15 +838,6 @@ export default function Explore() {
                   className="flex-1 sm:flex-none px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors"
                 >
                   {stage === "searching" || stage === "loading_restaurants" ? "Searching…" : searchMode === "local" ? "Discover" : "Find restaurants"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSurpriseMe}
-                  disabled={stage === "searching" || stage === "loading_restaurants"}
-                  title="Pick a random city, cuisine, and occasion for me"
-                  className="flex-shrink-0 px-4 py-3 border-2 border-primary text-primary rounded-lg hover:bg-purple-50 disabled:border-gray-300 disabled:text-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors whitespace-nowrap"
-                >
-                  🎲 Surprise me
                 </button>
               </div>
             </div>
