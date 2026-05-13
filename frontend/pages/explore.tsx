@@ -122,7 +122,6 @@ export default function Explore() {
   }, []);
   const [searchMode, setSearchMode] = useState<SearchMode>("local");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState("");
   const [priceRange, setPriceRange] = useState<string[]>([]);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [useMyPrefs, setUseMyPrefs] = useState(true);
@@ -587,7 +586,7 @@ export default function Explore() {
               {/* Primary — Local Dishes */}
               <button
                 type="button"
-                onClick={() => { setSearchMode("local"); setSelectedCategory(null); setCategoryFilter(""); }}
+                onClick={() => { setSearchMode("local"); setSelectedCategory(null); }}
                 className={`w-full flex items-center gap-4 px-5 py-4 rounded-xl border-2 font-semibold text-left transition-all ${
                   searchMode === "local"
                     ? "border-primary bg-purple-50 text-primary"
@@ -611,7 +610,7 @@ export default function Explore() {
                   <button
                     key={opt.mode}
                     type="button"
-                    onClick={() => { setSearchMode(opt.mode); setSelectedCategory(null); setCategoryFilter(""); }}
+                    onClick={() => { setSearchMode(opt.mode); setSelectedCategory(null); }}
                     className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 font-semibold text-left transition-all ${
                       searchMode === opt.mode
                         ? "border-primary bg-purple-50 text-primary"

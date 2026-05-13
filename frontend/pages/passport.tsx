@@ -646,7 +646,7 @@ export default function Passport() {
                                     <p className="text-xs font-medium text-dark">{entry.dish_name}</p>
                                     {entry.cuisine_type && <span className="text-xs text-purple-500">{entry.cuisine_type}</span>}
                                     {entry.rating && <p className="text-violet-400 text-xs mt-0.5">{"★".repeat(entry.rating)}{"☆".repeat(5 - entry.rating)}</p>}
-                                    {entry.notes && <p className="text-xs text-gray-500 italic mt-0.5 line-clamp-2">"{entry.notes}"</p>}
+                                    {entry.notes && <p className="text-xs text-gray-500 italic mt-0.5 line-clamp-2">&quot;{entry.notes}&quot;</p>}
                                     {entry.itinerary_ids?.length > 0 && (() => {
                                       const trips = itineraries.filter(t => entry.itinerary_ids.includes(t.id));
                                       if (trips.length === 0) return null;
