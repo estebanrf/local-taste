@@ -59,6 +59,10 @@ export default function Passport() {
   const [mapLoadingRestaurants, setMapLoadingRestaurants] = useState(false);
   const [mapSelectedRestaurantId, setMapSelectedRestaurantId] = useState<string | null>(null);
   const [mapFocusCoords, setMapFocusCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapPanelRestaurantId, setMapPanelRestaurantId] = useState<string | null>(null);
+  const [mapPanelEditingId, setMapPanelEditingId] = useState<string | null>(null);
+  const [mapPanelRating, setMapPanelRating] = useState(0);
+  const [mapPanelNotes, setMapPanelNotes] = useState("");
   const PAGE_SIZE = 10;
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [displayName, setDisplayName] = useState("");
@@ -544,7 +548,7 @@ export default function Passport() {
                   {mapExpandedCity && (
                     <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100">
                       <button
-                        onClick={() => { setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedRestaurantId(null); setMapFocusCoords(null); setCityFilter("all"); setCurrentPage(1); }}
+                        onClick={() => { setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedRestaurantId(null); setMapFocusCoords(null); setMapPanelRestaurantId(null); setMapPanelEditingId(null); setCityFilter("all"); setCurrentPage(1); }}
                         className="text-xs text-primary hover:underline flex items-center gap-1"
                       >
                         ← All cities
@@ -554,25 +558,121 @@ export default function Passport() {
                       {mapLoadingRestaurants && <span className="text-xs text-gray-400 animate-pulse ml-1">Loading…</span>}
                     </div>
                   )}
-                  <div style={{ height: mapExpandedCity ? 380 : 420 }}>
+                  <div style={{ position: "relative", height: mapExpandedCity ? 380 : 420 }}>
                     <ItineraryMap
                       items={cityMapItems}
                       selectedItem={mapSelectedRestaurantId ? cityMapItems.find(m => m.id === mapSelectedRestaurantId) ?? null : null}
                       onPinClick={item => {
                         if (!mapExpandedCity) {
-                          // city pin clicked → drill in
                           openMapCity(item.city_name, cityRestaurantIds[item.city_name] ?? []);
                         } else {
-                          // restaurant pin clicked → highlight + filter list
-                          setMapSelectedRestaurantId(prev => prev === item.id ? null : item.id);
+                          const nextId = mapPanelRestaurantId === item.id ? null : item.id;
+                          setMapSelectedRestaurantId(nextId);
+                          setMapPanelRestaurantId(nextId);
+                          setMapPanelEditingId(null);
                           if (item.latitude && item.longitude) setMapFocusCoords({ lat: item.latitude, lng: item.longitude });
-                          setCityFilter(mapExpandedCity);
-                          setCurrentPage(1);
                         }
                       }}
                       focusCoords={mapFocusCoords}
                       highlightedRestaurantId={mapSelectedRestaurantId}
                     />
+                    {/* Restaurant panel overlay */}
+                    {mapPanelRestaurantId && (() => {
+                      const panelRest = mapRestaurants.find(r => r.id === mapPanelRestaurantId);
+                      const panelEntries = entries.filter(e => e.restaurant_id === mapPanelRestaurantId);
+                      if (!panelRest && panelEntries.length === 0) return null;
+                      const restName = panelRest?.name ?? panelEntries[0]?.restaurant_name ?? "Restaurant";
+                      return (
+                        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 1000 }}
+                          className="bg-white border-t border-gray-200 shadow-xl rounded-t-xl max-h-64 overflow-y-auto"
+                        >
+                          {/* Header */}
+                          <div className="flex items-start justify-between px-4 pt-3 pb-2 border-b border-gray-100">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-dark text-sm truncate">{restName}</p>
+                              {panelRest?.address && <p className="text-xs text-gray-400 truncate">{panelRest.address}</p>}
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {panelRest?.google_rating && (
+                                  <span className="text-xs text-amber-500">★ {panelRest.google_rating}</span>
+                                )}
+                                {panelRest?.google_maps_url && (
+                                  <a href={panelRest.google_maps_url} target="_blank" rel="noopener noreferrer"
+                                    className="text-xs text-primary hover:underline">Maps ↗</a>
+                                )}
+                              </div>
+                            </div>
+                            <button onClick={() => { setMapPanelRestaurantId(null); setMapSelectedRestaurantId(null); setMapPanelEditingId(null); }}
+                              className="ml-2 text-gray-400 hover:text-gray-600 text-lg leading-none flex-shrink-0">✕</button>
+                          </div>
+
+                          {/* Passport entries for this restaurant */}
+                          {panelEntries.length === 0 ? (
+                            <p className="text-xs text-gray-400 px-4 py-3">No passport entries for this restaurant yet.</p>
+                          ) : panelEntries.map(entry => (
+                            <div key={entry.id} className="px-4 py-3 border-b border-gray-50 last:border-0">
+                              {mapPanelEditingId === entry.id ? (
+                                <div>
+                                  <p className="text-xs font-medium text-dark mb-2">{entry.dish_name}</p>
+                                  <div className="flex gap-1 mb-2">
+                                    {[1,2,3,4,5].map(s => (
+                                      <button key={s} type="button" onClick={() => setMapPanelRating(s === mapPanelRating ? 0 : s)}
+                                        className={`text-xl transition-colors ${s <= mapPanelRating ? "text-violet-400" : "text-gray-200"}`}>★</button>
+                                    ))}
+                                  </div>
+                                  <textarea value={mapPanelNotes} onChange={e => setMapPanelNotes(e.target.value)}
+                                    placeholder="Notes, memories…" rows={2}
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-primary mb-2" />
+                                  <div className="flex gap-2">
+                                    <button onClick={async () => {
+                                      try {
+                                        const token = await getToken();
+                                        await fetch(`${API_URL}/api/passport/${entry.id}`, {
+                                          method: "PUT",
+                                          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                                          body: JSON.stringify({ rating: mapPanelRating || null, notes: mapPanelNotes || null }),
+                                        });
+                                        setMapPanelEditingId(null);
+                                        showToast("success", "Updated!");
+                                        await load();
+                                      } catch { showToast("error", "Failed to save."); }
+                                    }} className="px-3 py-1 bg-primary text-white rounded-lg text-xs hover:bg-purple-700">Save</button>
+                                    <button onClick={() => setMapPanelEditingId(null)}
+                                      className="px-3 py-1 border border-gray-300 text-gray-600 rounded-lg text-xs">Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-dark">{entry.dish_name}</p>
+                                    {entry.cuisine_type && <span className="text-xs text-purple-500">{entry.cuisine_type}</span>}
+                                    {entry.rating && <p className="text-violet-400 text-xs mt-0.5">{"★".repeat(entry.rating)}{"☆".repeat(5 - entry.rating)}</p>}
+                                    {entry.notes && <p className="text-xs text-gray-500 italic mt-0.5 line-clamp-2">"{entry.notes}"</p>}
+                                    {entry.itinerary_ids?.length > 0 && (() => {
+                                      const trips = itineraries.filter(t => entry.itinerary_ids.includes(t.id));
+                                      if (trips.length === 0) return null;
+                                      return (
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                          {trips.map(t => (
+                                            <button key={t.id} onClick={() => goToPlan(entry, t.id)}
+                                              className="text-xs px-2 py-0.5 bg-purple-50 border border-primary text-primary rounded-lg hover:bg-purple-100">
+                                              📋 {t.name} →
+                                            </button>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                  <button onClick={() => { setMapPanelEditingId(entry.id); setMapPanelRating(entry.rating || 0); setMapPanelNotes(entry.notes || ""); }}
+                                    className="text-xs px-2 py-1 border border-gray-200 text-gray-500 rounded-lg hover:border-primary hover:text-primary flex-shrink-0">
+                                    Edit
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
