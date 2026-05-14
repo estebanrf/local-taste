@@ -131,6 +131,7 @@ async def run_restaurant_ranker(job_id: str) -> None:
     price_range          = payload.get("price_range") or []
     latitude             = payload.get("latitude")
     longitude            = payload.get("longitude")
+    radius_km            = int(payload.get("radius_km") if payload.get("radius_km") is not None else 5)
 
     logger.info(f"RestaurantRanker: job_id={job_id} dish_name={dish_name} city={city} country={country} category_mode={category_mode} category_type={category_type} dietary={dietary_preferences} price_range={price_range} coords={latitude},{longitude}")
 
@@ -142,6 +143,7 @@ async def run_restaurant_ranker(job_id: str) -> None:
         price_range=price_range,
         latitude=latitude,
         longitude=longitude,
+        radius_km=radius_km,
     )
 
     if category_type == "world_cuisine":

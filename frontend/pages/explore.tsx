@@ -108,6 +108,10 @@ const OCCASIONS = [
   { id: "Cocktail bar",    label: "Cocktail bar",    emoji: "🍸" },
 ];
 
+const EATING_OCCASIONS = OCCASIONS.filter(
+  o => !["Natural wine bar", "Craft beer", "Cocktail bar"].includes(o.id)
+);
+
 export default function Explore() {
   const { getToken } = useAuth();
   const { isLoaded: isUserLoaded } = useUser();
@@ -144,12 +148,15 @@ export default function Explore() {
   const [highlightedRestaurantId, setHighlightedRestaurantId] = useState<string | null>(null);
   const [cityKey, setCityKey] = useState(0);
   const [detailRestaurant, setDetailRestaurant] = useState<Restaurant | null>(null);
+  const [surpriseMode, setSurpriseMode] = useState(false);
+  const [isSurpriseResult, setIsSurpriseResult] = useState(false);
 
   // Near-me state
   const [locationMode, setLocationMode] = useState<LocationMode>("city");
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [geoLabel, setGeoLabel] = useState<string>("");
   const [geoStatus, setGeoStatus] = useState<"idle" | "locating" | "ready" | "denied">("idle");
+  const [radiusKm, setRadiusKm] = useState<number>(3);
 
   // Save-to modal state
   const [saveModal, setSaveModal] = useState<{
@@ -278,6 +285,7 @@ export default function Explore() {
     price: string[];
     latitude?: number | null;
     longitude?: number | null;
+    radiusKm?: number;
   }) => {
     setDishes([]);
     setCity(null);
@@ -311,7 +319,7 @@ export default function Explore() {
             dietary_preferences: opts.dietary,
             price_range: opts.price,
             ...(opts.latitude != null && opts.longitude != null
-              ? { latitude: opts.latitude, longitude: opts.longitude }
+              ? { latitude: opts.latitude, longitude: opts.longitude, radius_km: opts.radiusKm ?? 3 }
               : {}),
           }),
         });
@@ -371,6 +379,8 @@ export default function Explore() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSurpriseMode(false);
+    setIsSurpriseResult(false);
     if (geoStatus === "locating") return;
     if (locationMode === "nearby" && !geoCoords) {
       requestLocation();
@@ -389,9 +399,81 @@ export default function Explore() {
       price: priceRange,
       latitude: geoCoords?.lat ?? null,
       longitude: geoCoords?.lng ?? null,
+      radiusKm,
     });
   };
 
+
+  // When surpriseMode is on and dishes arrive, auto-click the top dish
+  useEffect(() => {
+    if (surpriseMode && stage === "dishes" && dishes.length > 0) {
+      const topDish = [...dishes].sort((a, b) => a.rank - b.rank)[0];
+      setSurpriseMode(false);
+      setIsSurpriseResult(true);
+      handleDishClick(topDish);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surpriseMode, stage, dishes]);
+
+  const handleSurpriseMe = async () => {
+    if (stage === "searching" || stage === "loading_restaurants") return;
+    if (geoStatus === "locating") return;
+    if (locationMode === "nearby" && !geoCoords) {
+      requestLocation();
+      return;
+    }
+    if (!cityInput.trim()) {
+      showToast("error", "Please select a city or use Near me — Surprise Me will pick a dish and restaurant for you!");
+      return;
+    }
+
+    // 50% local dishes, 25% world cuisine, 25% occasion
+    const roll = Math.random();
+    let randomMode: SearchMode;
+    let randomCategory: string | null = null;
+
+    if (roll < 0.5) {
+      randomMode = "local";
+    } else if (roll < 0.75) {
+      randomMode = "world_cuisine";
+      randomCategory = WORLD_CUISINES[Math.floor(Math.random() * WORLD_CUISINES.length)].id;
+    } else {
+      randomMode = "occasion";
+      randomCategory = EATING_OCCASIONS[Math.floor(Math.random() * EATING_OCCASIONS.length)].id;
+    }
+
+    setSearchMode(randomMode);
+    setSelectedCategory(randomCategory);
+    setIsSurpriseResult(false);
+
+    if (randomMode === "local") {
+      setSurpriseMode(true);
+      await runSearch({
+        city: cityInput.trim(),
+        country: countryInput.trim(),
+        mode: "local",
+        category: null,
+        dietary: useMyPrefs ? dietaryPrefs : customPrefs,
+        price: priceRange,
+        latitude: geoCoords?.lat ?? null,
+        longitude: geoCoords?.lng ?? null,
+        radiusKm,
+      });
+    } else {
+      setIsSurpriseResult(true);
+      await runSearch({
+        city: cityInput.trim(),
+        country: countryInput.trim(),
+        mode: randomMode,
+        category: randomCategory,
+        dietary: useMyPrefs ? dietaryPrefs : customPrefs,
+        price: priceRange,
+        latitude: geoCoords?.lat ?? null,
+        longitude: geoCoords?.lng ?? null,
+        radiusKm,
+      });
+    }
+  };
 
   const handleDishClick = async (dish: Dish) => {
     setSelectedDish(dish);
@@ -412,7 +494,7 @@ export default function Explore() {
           country: city?.country || "",
           dietary_preferences: dietaryPrefs,
           price_range: priceRange,
-          ...(geoCoords ? { latitude: geoCoords.lat, longitude: geoCoords.lng } : {}),
+          ...(geoCoords ? { latitude: geoCoords.lat, longitude: geoCoords.lng, radius_km: radiusKm } : {}),
         }),
       });
       if (!res.ok) throw new Error("Failed to start restaurant search");
@@ -808,6 +890,26 @@ export default function Explore() {
               </button>
             </div>
 
+            {locationMode === "nearby" && (
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Radius</span>
+                {([1, 3, 5, 10] as const).map(km => (
+                  <button
+                    key={km}
+                    type="button"
+                    onClick={() => setRadiusKm(km)}
+                    className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                      radiusKm === km
+                        ? "border-primary bg-purple-50 text-primary"
+                        : "border-gray-200 text-gray-500 hover:border-purple-200"
+                    }`}
+                  >
+                    &lt;{km} km
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row gap-3">
               {locationMode === "nearby" ? (
                 geoStatus === "locating" ? (
@@ -841,6 +943,15 @@ export default function Explore() {
                   className="flex-1 sm:flex-none px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors"
                 >
                   {stage === "searching" || stage === "loading_restaurants" ? "Searching…" : searchMode === "local" ? "Discover" : "Find restaurants"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSurpriseMe}
+                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
+                  title="Pick a random dish and find the best restaurant for you"
+                  className="flex-1 sm:flex-none px-5 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-lg hover:from-amber-500 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-all shadow-sm"
+                >
+                  🎲 Surprise me
                 </button>
               </div>
             </div>
@@ -1088,8 +1199,10 @@ export default function Explore() {
                   {/* Restaurant list — uncapped on mobile (natural scroll), capped on desktop */}
                   <div className="lg:col-span-1 space-y-3 lg:overflow-y-auto lg:max-h-[400px]">
                     {restaurants.map((r) => {
-                      const badge = getRestaurantBadge(r);
+                      const isSurprisePick = isSurpriseResult && r.rank === 1;
+                      const badge = isSurprisePick ? "Surprise!" : getRestaurantBadge(r);
                       const badgeStyle: Record<string, string> = {
+                        "Surprise!":            "bg-gradient-to-r from-amber-400 to-orange-400 text-white font-bold",
                         "Hidden gem":           "bg-emerald-50 text-emerald-700",
                         "Popular with locals":  "bg-amber-50 text-amber-700",
                         "Neighborhood favorite":"bg-orange-50 text-orange-700",
@@ -1109,9 +1222,11 @@ export default function Explore() {
                             }
                           }}
                           className={`rounded-xl border cursor-pointer transition-all overflow-hidden ${
-                            isHighlighted
-                              ? "border-primary ring-1 ring-primary bg-purple-50"
-                              : "border-gray-100 hover:border-primary hover:shadow-sm bg-white"
+                            isSurprisePick && !isHighlighted
+                              ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/30"
+                              : isHighlighted
+                                ? "border-primary ring-1 ring-primary bg-purple-50"
+                                : "border-gray-100 hover:border-primary hover:shadow-sm bg-white"
                           }`}
                         >
                           {/* Photo */}

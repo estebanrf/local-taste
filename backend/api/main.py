@@ -115,6 +115,9 @@ class RankRestaurantsRequest(BaseModel):
     country: str = Field(description="Country name for search context")
     dietary_preferences: Optional[List[str]] = Field(default_factory=list)
     price_range: Optional[List[str]] = Field(default_factory=list, description="Preferred price tiers e.g. ['$', '$$']")
+    latitude: Optional[float] = Field(default=None)
+    longitude: Optional[float] = Field(default=None)
+    radius_km: Optional[int] = Field(default=5, description="Search radius in km for near-me searches")
 
 
 class RankByCategoryRequest(BaseModel):
@@ -126,6 +129,7 @@ class RankByCategoryRequest(BaseModel):
     price_range: Optional[List[str]] = Field(default_factory=list, description="Preferred price tiers e.g. ['$', '$$']")
     latitude: Optional[float] = Field(default=None, description="User latitude for near-me search")
     longitude: Optional[float] = Field(default=None, description="User longitude for near-me search")
+    radius_km: Optional[int] = Field(default=5, description="Search radius in km for near-me searches")
 
 
 class RankRestaurantsResponse(BaseModel):
@@ -334,6 +338,7 @@ async def rank_by_category(request: RankByCategoryRequest, clerk_user_id: str = 
             "price_range": request.price_range or [],
             "latitude": request.latitude,
             "longitude": request.longitude,
+            "radius_km": request.radius_km or 5,
         }
         job_id = db.jobs.create_job(
             clerk_user_id=clerk_user_id,

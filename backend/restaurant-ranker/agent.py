@@ -26,8 +26,11 @@ class RestaurantRankerContext:
     category_type: Optional[str] = None  # 'world_cuisine' | 'occasion' | None
     dietary_preferences: Optional[List[str]] = None
     price_range: Optional[List[str]] = None  # e.g. ['$', '$$']
-    latitude: Optional[float] = None
+    latitude: Optional[float] = None   # user GPS (Near me)
     longitude: Optional[float] = None
+    radius_km: int = 5                 # Near me radius
+    city_lat: Optional[float] = None   # geocoded city centre
+    city_lng: Optional[float] = None
 
 
 def _resolve_photo_url(api_key: str, photo_reference: str, max_width: int = 600) -> Optional[str]:
@@ -76,9 +79,14 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
         ctx = wrapper.context
         kwargs: dict = {"query": query, "type": "restaurant"}
         if ctx.latitude is not None and ctx.longitude is not None:
+            # Near me — use GPS with user-chosen radius
             kwargs["location"] = (ctx.latitude, ctx.longitude)
-            kwargs["radius"] = 5000
-        logger.info(f"Google Maps Places search: {query} (coords={kwargs.get('location')})")
+            kwargs["radius"] = ctx.radius_km * 1000
+        elif ctx.city_lat is not None and ctx.city_lng is not None:
+            # Typed city — bias to city centre with 30 km metropolitan radius
+            kwargs["location"] = (ctx.city_lat, ctx.city_lng)
+            kwargs["radius"] = 30_000
+        logger.info(f"Google Maps Places search: {query} (location={kwargs.get('location')}, radius={kwargs.get('radius')})")
         response = gmaps.places(**kwargs)
         results = response.get("results", [])[:5]
 
@@ -166,12 +174,38 @@ def create_agent(
     price_range: Optional[List[str]] = None,
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
+    radius_km: int = 5,
 ):
     model_id = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-pro-v1:0")
     bedrock_region = os.getenv("BEDROCK_REGION", "eu-west-1")
     os.environ["AWS_REGION_NAME"] = bedrock_region
 
     logger.info(f"RestaurantRanker agent: model={model_id} region={bedrock_region} category_mode={category_mode} dietary={dietary_preferences} job_id={job_id}")
+
+    # Geocode city to coordinates so Places searches are always location-biased
+    city_lat: Optional[float] = None
+    city_lng: Optional[float] = None
+    if latitude is None and city:
+        api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+        if api_key:
+            try:
+                import googlemaps as _gmaps
+                _client = _gmaps.Client(key=api_key)
+                geo = _client.find_place(
+                    input=f"{city}, {country}",
+                    input_type="textquery",
+                    fields=["geometry"],
+                )
+                candidates = geo.get("candidates", [])
+                if candidates:
+                    loc = candidates[0].get("geometry", {}).get("location", {})
+                    city_lat = loc.get("lat")
+                    city_lng = loc.get("lng")
+                    logger.info(f"Geocoded '{city}, {country}' → ({city_lat}, {city_lng})")
+                else:
+                    logger.warning(f"Geocoding found no candidates for '{city}, {country}'")
+            except Exception as e:
+                logger.warning(f"Geocoding failed for '{city}, {country}': {e}")
 
     model = LitellmModel(model=f"bedrock/{model_id}")
     context = RestaurantRankerContext(
@@ -183,6 +217,9 @@ def create_agent(
         price_range=price_range or [],
         latitude=latitude,
         longitude=longitude,
+        radius_km=radius_km,
+        city_lat=city_lat,
+        city_lng=city_lng,
     )
 
     near_me = latitude is not None and longitude is not None
