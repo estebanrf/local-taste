@@ -156,7 +156,7 @@ export default function Explore() {
   const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [geoLabel, setGeoLabel] = useState<string>("");
   const [geoStatus, setGeoStatus] = useState<"idle" | "locating" | "ready" | "denied">("idle");
-  const [radiusKm, setRadiusKm] = useState<number>(3);
+  const [radiusKm, setRadiusKm] = useState<number>(5);
 
   // Save-to modal state
   const [saveModal, setSaveModal] = useState<{
