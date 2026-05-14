@@ -44,12 +44,15 @@ export default function CityAutocomplete({ onSelect, initialValue = "", disabled
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
+  // Sync if parent loads initialValue asynchronously (e.g. Passport page)
+  useEffect(() => { setQuery(initialValue); }, [initialValue]);
+
   useEffect(() => {
     const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!key) return;
     loadMapsApi(key)
       .then(() => setMapsReady(true))
-      .catch(() => { /* silent — input still works without suggestions */ });
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -78,7 +81,6 @@ export default function CityAutocomplete({ onSelect, initialValue = "", disabled
 
   const commit = useCallback((s: Suggestion) => {
     const city = s.placePrediction.mainText.text;
-    // secondaryText is "Region, Country" or just "Country" — take last segment
     const parts = s.placePrediction.secondaryText.text.split(", ");
     const country = parts[parts.length - 1] ?? "";
     setQuery(s.placePrediction.text.text);

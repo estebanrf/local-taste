@@ -1,6 +1,6 @@
 """
 Restaurant Ranker Agent - finds and ranks top-5 restaurants for a dish in a city.
-Uses Google Maps Places API to search for real restaurant data.
+Uses Google Maps Places API (New) for all location queries.
 """
 
 import os
@@ -9,10 +9,14 @@ import logging
 from typing import Any, List, Optional
 from dataclasses import dataclass
 
+import httpx
+
 from agents import function_tool, RunContextWrapper
 from agents.extensions.models.litellm_model import LitellmModel
 
 logger = logging.getLogger()
+
+PLACES_BASE = "https://places.googleapis.com/v1"
 
 
 @dataclass
@@ -42,70 +46,139 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def _resolve_photo_url(api_key: str, photo_reference: str, max_width: int = 600) -> Optional[str]:
-    """Follow the Places photo redirect and return the final CDN URL (no API key exposed)."""
-    import urllib.request
-    url = (
-        f"https://maps.googleapis.com/maps/api/place/photo"
-        f"?maxwidth={max_width}&photoreference={photo_reference}&key={api_key}"
-    )
+def _places_headers(api_key: str, field_mask: str) -> dict:
+    return {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": field_mask,
+    }
+
+
+def _resolve_photo_url(api_key: str, photo_name: str, max_width: int = 600) -> Optional[str]:
+    """Resolve a Places API (New) photo name to a redirected CDN URL (no key exposed)."""
+    url = f"{PLACES_BASE}/{photo_name}/media?maxWidthPx={max_width}&key={api_key}&skipHttpRedirect=false"
     try:
-        req = urllib.request.Request(url, method="GET")
-        # Don't follow redirects — we want the Location header
-        import urllib.error
-        try:
-            urllib.request.urlopen(req)
-        except urllib.error.HTTPError as e:
-            if e.code in (301, 302, 303, 307, 308):
-                return e.headers.get("Location")
-            return None
-        # Some environments follow redirects automatically and land on the image
-        return url  # fallback: return original (key still present but won't reach frontend)
+        r = httpx.get(url, follow_redirects=False, timeout=5)
+        if r.status_code in (301, 302, 303, 307, 308):
+            return r.headers.get("location")
+        # Some CDNs serve the image directly
+        if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
+            return url
+        return None
     except Exception:
+        return None
+
+
+def _geocode_city(api_key: str, city: str, country: str) -> Optional[tuple[float, float]]:
+    """Geocode a city name using Places API (New) Autocomplete → first city result."""
+    try:
+        payload = {
+            "input": f"{city}, {country}",
+            "includedPrimaryTypes": ["locality"],
+            "includeQueryPredictions": False,
+        }
+        r = httpx.post(
+            f"{PLACES_BASE}/places:autocomplete",
+            json=payload,
+            headers=_places_headers(api_key, "suggestions.placePrediction.placeId"),
+            timeout=5,
+        )
+        r.raise_for_status()
+        suggestions = r.json().get("suggestions", [])
+        if not suggestions:
+            logger.warning(f"Geocode: no suggestions for '{city}, {country}'")
+            return None
+
+        place_id = suggestions[0]["placePrediction"]["placeId"]
+
+        # Fetch coordinates via Place Details
+        r2 = httpx.get(
+            f"{PLACES_BASE}/places/{place_id}",
+            headers=_places_headers(api_key, "location"),
+            timeout=5,
+        )
+        r2.raise_for_status()
+        loc = r2.json().get("location", {})
+        lat, lng = loc.get("latitude"), loc.get("longitude")
+        if lat is None or lng is None:
+            return None
+        logger.info(f"Geocoded '{city}, {country}' → ({lat}, {lng})")
+        return float(lat), float(lng)
+    except Exception as e:
+        logger.warning(f"Geocoding failed for '{city}, {country}': {e}")
         return None
 
 
 @function_tool
 async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], query: str) -> str:
     """
-    Search for restaurants using the Google Maps Places API, enriched with
-    review snippets and a photo URL from Places Details.
+    Search for restaurants using the Google Maps Places API (New), enriched with
+    review snippets and a photo URL from Place Details.
 
     Args:
         query: The search query, e.g. "best ramen restaurants Tokyo Japan"
     Returns:
         Structured restaurant data as text
     """
-    import googlemaps
-
     api_key = os.getenv("GOOGLE_MAPS_API_KEY")
     if not api_key:
         logger.warning("GOOGLE_MAPS_API_KEY not set")
         return "Search unavailable: GOOGLE_MAPS_API_KEY not configured."
 
-    try:
-        gmaps = googlemaps.Client(key=api_key)
-        ctx = wrapper.context
-        kwargs: dict = {"query": query, "type": "restaurant"}
-        if ctx.latitude is not None and ctx.longitude is not None:
-            # Near me — use GPS with user-chosen radius
-            kwargs["location"] = (ctx.latitude, ctx.longitude)
-            kwargs["radius"] = ctx.radius_km * 1000
-        elif ctx.city_lat is not None and ctx.city_lng is not None:
-            # Typed city — bias to city centre with 30 km metropolitan radius
-            kwargs["location"] = (ctx.city_lat, ctx.city_lng)
-            kwargs["radius"] = 30_000
-        logger.info(f"Google Maps Places search: {query} (location={kwargs.get('location')}, radius={kwargs.get('radius')})")
-        response = gmaps.places(**kwargs)
-        all_results = response.get("results", [])
+    ctx = wrapper.context
 
-        # Hard-filter by actual distance when Near me is active — Google's radius is a soft bias
+    try:
+        # ── Text Search ────────────────────────────────────────────────────────
+        payload: dict = {
+            "textQuery": query,
+            "includedType": "restaurant",
+            "languageCode": "en",
+        }
+
+        if ctx.latitude is not None and ctx.longitude is not None:
+            # Near me — strict circle
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": ctx.latitude, "longitude": ctx.longitude},
+                    "radius": float(ctx.radius_km * 1000),
+                }
+            }
+        elif ctx.city_lat is not None and ctx.city_lng is not None:
+            # Typed city — 30 km metropolitan bias
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": ctx.city_lat, "longitude": ctx.city_lng},
+                    "radius": 30_000.0,
+                }
+            }
+
+        field_mask = (
+            "places.id,places.displayName,places.formattedAddress,"
+            "places.rating,places.userRatingCount,places.priceLevel,"
+            "places.location,places.googleMapsUri,places.photos"
+        )
+
+        r = httpx.post(
+            f"{PLACES_BASE}/places:searchText",
+            json=payload,
+            headers=_places_headers(api_key, field_mask),
+            timeout=15,
+        )
+        r.raise_for_status()
+        all_results = r.json().get("places", [])
+
+        logger.info(
+            f"Places Text Search: '{query}' → {len(all_results)} results "
+            f"(bias={'nearme' if ctx.latitude else 'city' if ctx.city_lat else 'none'})"
+        )
+
+        # Hard-filter by actual distance when Near me is active
         if ctx.latitude is not None and ctx.longitude is not None:
             before = len(all_results)
             all_results = [
-                r for r in all_results
-                if (loc := r.get("geometry", {}).get("location", {}))
-                and _haversine_km(ctx.latitude, ctx.longitude, loc["lat"], loc["lng"]) <= ctx.radius_km
+                p for p in all_results
+                if (loc := p.get("location", {}))
+                and _haversine_km(ctx.latitude, ctx.longitude, loc["latitude"], loc["longitude"]) <= ctx.radius_km
             ]
             logger.info(f"Radius hard-filter {ctx.radius_km}km: {before} → {len(all_results)} results")
             if not all_results:
@@ -113,59 +186,61 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
 
         results = all_results[:5]
 
+        # ── Enrich each result with Details (reviews + resolved photo) ─────────
         lines = []
-        for r in results:
-            name = r.get("name", "")
-            address = r.get("formatted_address", "")
-            rating = r.get("rating", "")
-            review_count = r.get("user_ratings_total", "")
-            price_level = r.get("price_level")
-            place_id = r.get("place_id", "")
-            location = r.get("geometry", {}).get("location", {})
-            lat = location.get("lat")
-            lng = location.get("lng")
+        for p in results:
+            place_id  = p.get("id", "")
+            name      = p.get("displayName", {}).get("text", "")
+            address   = p.get("formattedAddress", "")
+            rating    = p.get("rating", "")
+            rev_count = p.get("userRatingCount", "")
+            price_raw = p.get("priceLevel", "")
+            loc       = p.get("location", {})
+            lat       = loc.get("latitude")
+            lng       = loc.get("longitude")
+            maps_url  = p.get("googleMapsUri", "")
 
-            if place_id:
-                maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            else:
-                import urllib.parse
-                query_str = urllib.parse.quote_plus(f"{name} {address}".strip())
-                maps_url = f"https://www.google.com/maps/search/?q={query_str}"
+            # price_level mapping: PRICE_LEVEL_FREE/INEXPENSIVE/MODERATE/EXPENSIVE/VERY_EXPENSIVE
+            price_map = {
+                "PRICE_LEVEL_FREE": "$",
+                "PRICE_LEVEL_INEXPENSIVE": "$",
+                "PRICE_LEVEL_MODERATE": "$$",
+                "PRICE_LEVEL_EXPENSIVE": "$$$",
+                "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+            }
+            price_str = price_map.get(str(price_raw), "unknown")
 
-            price_str = "$" * price_level if isinstance(price_level, int) and price_level > 0 else "unknown"
-
-            # Fetch Places Details for reviews and photo
+            # Photo
             photo_url = None
-            review_lines = []
+            photos = p.get("photos", [])
+            if photos and place_id:
+                photo_name = photos[0].get("name", "")
+                if photo_name:
+                    photo_url = _resolve_photo_url(api_key, photo_name)
+
+            # Reviews via Place Details
+            review_lines: list[str] = []
             if place_id:
                 try:
-                    details = gmaps.place(
-                        place_id=place_id,
-                        fields=["review", "photo"],
-                        language="en",
-                    ).get("result", {})
-
-                    # Photo — resolve redirect to get key-free CDN URL
-                    photos = details.get("photos", [])
-                    if photos:
-                        ref = photos[0].get("photo_reference", "")
-                        if ref:
-                            photo_url = _resolve_photo_url(api_key, ref)
-
-                    # Reviews
-                    for rev in details.get("reviews", [])[:5]:
-                        author = rev.get("author_name", "")
+                    r2 = httpx.get(
+                        f"{PLACES_BASE}/places/{place_id}",
+                        headers=_places_headers(api_key, "reviews"),
+                        timeout=10,
+                    )
+                    r2.raise_for_status()
+                    for rev in r2.json().get("reviews", [])[:5]:
+                        author = rev.get("authorAttribution", {}).get("displayName", "")
                         rev_rating = rev.get("rating", "")
-                        text = rev.get("text", "").replace("\n", " ").strip()
+                        text = rev.get("text", {}).get("text", "").replace("\n", " ").strip()
                         if text:
                             review_lines.append(f'  - {author} ({rev_rating}★): "{text[:300]}"')
                 except Exception as e:
-                    logger.warning(f"Places Details failed for {place_id}: {e}")
+                    logger.warning(f"Place Details failed for {place_id}: {e}")
 
             block = (
                 f"**{name}**\n"
                 f"Address: {address}\n"
-                f"Rating: {rating} ({review_count} reviews)\n"
+                f"Rating: {rating} ({rev_count} reviews)\n"
                 f"Price: {price_str}\n"
                 f"Latitude: {lat}\n"
                 f"Longitude: {lng}\n"
@@ -174,13 +249,16 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             )
             if review_lines:
                 block += "\nReviews:\n" + "\n".join(review_lines)
-
             lines.append(block)
 
-        logger.info(f"Google Maps search for '{query}' returned {len(results)} results with details")
+        logger.info(f"search_places: returning {len(lines)} enriched results")
         return "\n\n".join(lines) or "No results found."
+
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Places API HTTP error: {e.response.status_code} {e.response.text[:300]}")
+        return f"Search failed: HTTP {e.response.status_code}"
     except Exception as e:
-        logger.warning(f"Google Maps search failed: {e}")
+        logger.warning(f"Places search failed: {e}")
         return f"Search failed: {e}"
 
 
@@ -205,30 +283,15 @@ def create_agent(
 
     logger.info(f"RestaurantRanker agent: model={model_id} region={bedrock_region} category_mode={category_mode} dietary={dietary_preferences} job_id={job_id}")
 
-    # Geocode city to coordinates so Places searches are always location-biased
+    # Geocode city centre for location bias when no GPS coords provided
     city_lat: Optional[float] = None
     city_lng: Optional[float] = None
     if latitude is None and city:
         api_key = os.getenv("GOOGLE_MAPS_API_KEY")
         if api_key:
-            try:
-                import googlemaps as _gmaps
-                _client = _gmaps.Client(key=api_key)
-                geo = _client.find_place(
-                    input=f"{city}, {country}",
-                    input_type="textquery",
-                    fields=["geometry"],
-                )
-                candidates = geo.get("candidates", [])
-                if candidates:
-                    loc = candidates[0].get("geometry", {}).get("location", {})
-                    city_lat = loc.get("lat")
-                    city_lng = loc.get("lng")
-                    logger.info(f"Geocoded '{city}, {country}' → ({city_lat}, {city_lng})")
-                else:
-                    logger.warning(f"Geocoding found no candidates for '{city}, {country}'")
-            except Exception as e:
-                logger.warning(f"Geocoding failed for '{city}, {country}': {e}")
+            result = _geocode_city(api_key, city, country)
+            if result:
+                city_lat, city_lng = result
 
     model = LitellmModel(model=f"bedrock/{model_id}")
     context = RestaurantRankerContext(
