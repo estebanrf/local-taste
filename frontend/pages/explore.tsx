@@ -327,6 +327,11 @@ export default function Explore() {
         const data = await res.json();
         pollJob(data.job_id, async (job) => {
           const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
+          if (rPayload.no_results_in_radius) {
+            showToast("error", `No restaurants found within ${rPayload.radius_km} km. Try a larger radius.`);
+            setStage("idle");
+            return;
+          }
           const rList = (rPayload.restaurants as Restaurant[]) || [];
           setRestaurants([...rList].sort((a, b) => a.rank - b.rank));
           setStage("restaurants");
@@ -501,6 +506,11 @@ export default function Explore() {
       const data = await res.json();
       pollJob(data.job_id, async (job) => {
         const rPayload = (job.restaurants_payload as Record<string, unknown>) || {};
+        if (rPayload.no_results_in_radius) {
+          showToast("error", `No restaurants found within ${rPayload.radius_km} km. Try a larger radius.`);
+          setStage("dishes");
+          return;
+        }
         const rList = (rPayload.restaurants as Restaurant[]) || [];
         const sortByRank = (list: Restaurant[]) =>
           [...list].sort((a, b) => a.rank - b.rank);

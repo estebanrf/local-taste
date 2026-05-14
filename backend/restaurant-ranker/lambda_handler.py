@@ -165,6 +165,14 @@ async def run_restaurant_ranker(job_id: str) -> None:
 
     logger.info(f"RestaurantRanker: agent output (first 500 chars): {result.final_output[:500]}")
 
+    # Tool signalled no results within the chosen radius
+    if "NO_RESULTS_IN_RADIUS:" in result.final_output:
+        import re
+        m = re.search(r"NO_RESULTS_IN_RADIUS:(\d+)", result.final_output)
+        radius = m.group(1) if m else "?"
+        db.jobs.update_restaurants(job_id, {"restaurants": [], "no_results_in_radius": True, "radius_km": int(radius)})
+        return
+
     _save_ranking_results(
         job_id=job_id,
         result_text=result.final_output,

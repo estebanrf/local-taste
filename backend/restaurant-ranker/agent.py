@@ -4,6 +4,7 @@ Uses Google Maps Places API to search for real restaurant data.
 """
 
 import os
+import math
 import logging
 from typing import Any, List, Optional
 from dataclasses import dataclass
@@ -31,6 +32,14 @@ class RestaurantRankerContext:
     radius_km: int = 5                 # Near me radius
     city_lat: Optional[float] = None   # geocoded city centre
     city_lng: Optional[float] = None
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
 
 
 def _resolve_photo_url(api_key: str, photo_reference: str, max_width: int = 600) -> Optional[str]:
@@ -88,7 +97,21 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             kwargs["radius"] = 30_000
         logger.info(f"Google Maps Places search: {query} (location={kwargs.get('location')}, radius={kwargs.get('radius')})")
         response = gmaps.places(**kwargs)
-        results = response.get("results", [])[:5]
+        all_results = response.get("results", [])
+
+        # Hard-filter by actual distance when Near me is active — Google's radius is a soft bias
+        if ctx.latitude is not None and ctx.longitude is not None:
+            before = len(all_results)
+            all_results = [
+                r for r in all_results
+                if (loc := r.get("geometry", {}).get("location", {}))
+                and _haversine_km(ctx.latitude, ctx.longitude, loc["lat"], loc["lng"]) <= ctx.radius_km
+            ]
+            logger.info(f"Radius hard-filter {ctx.radius_km}km: {before} → {len(all_results)} results")
+            if not all_results:
+                return f"NO_RESULTS_IN_RADIUS:{ctx.radius_km}"
+
+        results = all_results[:5]
 
         lines = []
         for r in results:
