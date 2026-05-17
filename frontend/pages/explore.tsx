@@ -42,6 +42,7 @@ interface Restaurant {
   latitude: number | null;
   longitude: number | null;
   photo_url: string | null;
+  open_now: boolean | null;
   reviews: ReviewSnippet[];
 }
 
@@ -667,7 +668,7 @@ export default function Explore() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-dark mb-2">Explore a City</h1>
-            <p className="text-gray-600">Enter any city and discover its 5 must-try dishes — then find the best places to eat them.</p>
+            <p className="text-gray-600">Enter any city and discover its top 10 must-try dishes — then find the best places to eat them.</p>
           </div>
 
           {/* Food category selector */}
@@ -688,7 +689,7 @@ export default function Explore() {
                 <span className="text-3xl">🌍</span>
                 <div>
                   <div className="font-bold text-base leading-tight">Local dishes</div>
-                  <div className="text-sm font-normal text-gray-500 mt-0.5">Discover the soul of the city — top 5 must-try dishes</div>
+                  <div className="text-sm font-normal text-gray-500 mt-0.5">Discover the soul of the city — top 10 must-try dishes</div>
                 </div>
                 {searchMode === "local" && <span className="ml-auto text-primary text-sm">✓</span>}
               </button>
@@ -1266,7 +1267,7 @@ export default function Explore() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex-shrink-0 text-right">
+                                <div className="flex-shrink-0 text-right flex flex-col items-end gap-0.5">
                                   {r.google_rating && (
                                     <div className="flex items-center gap-0.5">
                                       <span className="text-violet-500 text-xs">★</span>
@@ -1279,6 +1280,12 @@ export default function Explore() {
                                         ? "text-amber-600"
                                         : "text-gray-400"
                                     }`}>{r.price_level}</span>
+                                  )}
+                                  {r.open_now === true && (
+                                    <span className="text-xs font-medium text-green-600">Open now</span>
+                                  )}
+                                  {r.open_now === false && (
+                                    <span className="text-xs font-medium text-red-400">Closed</span>
                                   )}
                                 </div>
                               </div>
@@ -1357,6 +1364,12 @@ export default function Explore() {
                     )}
                     {detailRestaurant.price_level && (
                       <span className="text-sm font-medium text-amber-600">{detailRestaurant.price_level}</span>
+                    )}
+                    {detailRestaurant.open_now === true && (
+                      <span className="text-sm font-semibold text-green-600">● Open now</span>
+                    )}
+                    {detailRestaurant.open_now === false && (
+                      <span className="text-sm font-medium text-red-400">● Closed</span>
                     )}
                     {detailRestaurant.address && (
                       <span className="text-xs text-gray-400">{detailRestaurant.address}</span>

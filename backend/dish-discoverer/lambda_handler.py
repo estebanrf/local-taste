@@ -49,7 +49,7 @@ def _save_discovery_results(job_id: str, result_text: str, city: str, country: s
             logger.info(f"DishDiscoverer: upserted city_id={city_id}")
 
         dishes = data.get("dishes", [])
-        for dish_data in dishes[:5]:
+        for dish_data in dishes[:10]:
             dish = DishCreate(
                 city_id=city_id,
                 name=dish_data["name"],

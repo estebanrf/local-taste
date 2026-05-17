@@ -155,7 +155,8 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
         field_mask = (
             "places.id,places.displayName,places.formattedAddress,"
             "places.rating,places.userRatingCount,places.priceLevel,"
-            "places.location,places.googleMapsUri,places.photos"
+            "places.location,places.googleMapsUri,places.photos,"
+            "places.currentOpeningHours.openNow"
         )
 
         r = httpx.post(
@@ -184,7 +185,7 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             if not all_results:
                 return f"NO_RESULTS_IN_RADIUS:{ctx.radius_km}"
 
-        results = all_results[:5]
+        results = all_results[:10]
 
         # ── Enrich each result with Details (reviews + resolved photo) ─────────
         lines = []
@@ -199,6 +200,8 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             lat       = loc.get("latitude")
             lng       = loc.get("longitude")
             maps_url  = p.get("googleMapsUri", "")
+            open_now_raw = p.get("currentOpeningHours", {}).get("openNow")
+            open_now  = "yes" if open_now_raw is True else ("no" if open_now_raw is False else "unknown")
 
             # price_level mapping: PRICE_LEVEL_FREE/INEXPENSIVE/MODERATE/EXPENSIVE/VERY_EXPENSIVE
             price_map = {
@@ -242,6 +245,7 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
                 f"Address: {address}\n"
                 f"Rating: {rating} ({rev_count} reviews)\n"
                 f"Price: {price_str}\n"
+                f"Open now: {open_now}\n"
                 f"Latitude: {lat}\n"
                 f"Longitude: {lng}\n"
                 f"Maps: {maps_url}\n"
@@ -251,7 +255,8 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
                 block += "\nReviews:\n" + "\n".join(review_lines)
             lines.append(block)
 
-        logger.info(f"search_places: returning {len(lines)} enriched results")
+        open_count = sum(1 for p in results if p.get("currentOpeningHours", {}).get("openNow") is True)
+        logger.info(f"search_places: returning {len(lines)} enriched results ({open_count} open now)")
         return "\n\n".join(lines) or "No results found."
 
     except httpx.HTTPStatusError as e:

@@ -50,7 +50,7 @@ export default function Home() {
               Eat like a local,<br />wherever you are
             </h1>
             <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
-              Tell us the city. Discover the 5 dishes you <em>must</em> try — then find the best places to eat them, chosen using local reviews, reputation, and food expertise.
+              Tell us the city. Discover the 10 dishes you <em>must</em> try — then find the best places to eat them, chosen using local reviews, reputation, and food expertise.
             </p>
             <div className="flex gap-4 justify-center">
               <SignedOut>
@@ -84,7 +84,7 @@ export default function Home() {
               <div className="text-center p-8">
                 <div className="text-5xl mb-4">🍽️</div>
                 <h3 className="text-xl font-semibold text-dark mb-2">Discover its soul dishes</h3>
-                <p className="text-gray-600">The 5 dishes that define the city — morning through late-night — with the story behind each one.</p>
+                <p className="text-gray-600">The 10 dishes that define the city — morning through late-night — with the story behind each one.</p>
               </div>
               <div className="text-center p-8">
                 <div className="text-5xl mb-4">📍</div>

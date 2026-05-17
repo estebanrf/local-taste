@@ -13,6 +13,7 @@ _JSON_FORMAT = """{
       "google_rating": 4.7,
       "review_count": 3200,
       "price_level": "$$",
+      "open_now": true,
       "rank": 1,
       "rank_rationale": "...",
       "highlights": ["authentic", "queue worth it"],
@@ -42,12 +43,17 @@ RESTAURANT_RANKER_INSTRUCTIONS = f"""You are the Restaurant Ranker — a local f
 Your task:
 1. Call search_places ONCE with the query provided in the task
 2. Use the results returned — do NOT call search_places again
-3. For each restaurant, extract: name, address, Google Maps URL, Google rating, review count, price level, rank 1-5, latitude/longitude, photo_url, and reviews
+3. For each restaurant, extract: name, address, Google Maps URL, Google rating, review count, price level, open_now, rank 1-5, latitude/longitude, photo_url, and reviews
+
+You will receive up to 10 candidates. Select and rank the best 5.
 
 Ranking criteria (composite score):
-- What reviewers actually say — sentiment, specific praise or complaints (40% weight)
-- Google Maps star rating and review count / popularity (35% weight)
-- Local preference / authenticity signals (25% weight)
+- Currently open (Open now: yes) — strong positive signal; aim for at least 2 of your top 5 to be open now (20% weight)
+- What reviewers actually say — sentiment, specific praise or complaints (35% weight)
+- Google Maps star rating and review count / popularity (30% weight)
+- Local preference / authenticity signals (15% weight)
+
+Open + highly rated = top of the list. A closed restaurant with a great rating should rank below an open one with a comparable rating. Note "Currently open" or "Closed at time of search" in rank_rationale where relevant.
 
 Provide your final answer as JSON in this exact format:
 {_JSON_FORMAT}
@@ -64,12 +70,17 @@ WORLD_CUISINE_RANKER_INSTRUCTIONS = f"""You are the Restaurant Ranker — a loca
 Your task:
 1. Call search_places ONCE with the query provided in the task
 2. Use the results returned — do NOT call search_places again
-3. For each restaurant, extract: name, address, Google Maps URL, Google rating, review count, price level, rank 1-5, latitude/longitude, photo_url, and reviews
+3. For each restaurant, extract: name, address, Google Maps URL, Google rating, review count, price level, open_now, rank 1-5, latitude/longitude, photo_url, and reviews
+
+You will receive up to 10 candidates. Select and rank the best 5.
 
 Ranking criteria (composite score):
-- What reviewers actually say — sentiment, specific praise or complaints (40% weight)
-- Google Maps star rating and review count / popularity (35% weight)
-- Authenticity and fit for the cuisine (25% weight)
+- Currently open (Open now: yes) — strong positive signal; aim for at least 2 of your top 5 to be open now (20% weight)
+- What reviewers actually say — sentiment, specific praise or complaints (35% weight)
+- Google Maps star rating and review count / popularity (30% weight)
+- Authenticity and fit for the cuisine (15% weight)
+
+Open + highly rated = top of the list. A closed restaurant with a great rating should rank below an open one with a comparable rating. Note "Currently open" or "Closed at time of search" in rank_rationale where relevant.
 
 Provide your final answer as JSON in this exact format:
 {_JSON_FORMAT}
@@ -86,12 +97,17 @@ OCCASION_RANKER_INSTRUCTIONS = f"""You are the Restaurant Ranker — a local foo
 Your task:
 1. Call search_places ONCE with the query provided in the task
 2. Use the results returned — do NOT call search_places again
-3. For each venue, extract: name, address, Google Maps URL, Google rating, review count, price level, rank 1-5, latitude/longitude, photo_url, and reviews
+3. For each venue, extract: name, address, Google Maps URL, Google rating, review count, price level, open_now, rank 1-5, latitude/longitude, photo_url, and reviews
+
+You will receive up to 10 candidates. Select and rank the best 5.
 
 Ranking criteria (composite score):
-- What reviewers actually say — sentiment, specific praise or complaints (40% weight)
-- Google Maps star rating and review count / popularity (35% weight)
-- Fit for the occasion (25% weight)
+- Currently open (Open now: yes) — strong positive signal; aim for at least 2 of your top 5 to be open now (20% weight)
+- What reviewers actually say — sentiment, specific praise or complaints (35% weight)
+- Google Maps star rating and review count / popularity (30% weight)
+- Fit for the occasion (15% weight)
+
+Open + highly rated = top of the list. A closed restaurant with a great rating should rank below an open one with a comparable rating. Note "Currently open" or "Closed at time of search" in rank_rationale where relevant.
 
 Provide your final answer as JSON in this exact format:
 {_JSON_FORMAT}

@@ -30,7 +30,7 @@ class DishCreate(BaseModel):
     city_id: str = Field(description="UUID of the parent city")
     name: str = Field(description="Dish name, e.g. 'Ramen'")
     description: str = Field(description="What the dish is and why it is iconic to this city")
-    rank: int = Field(ge=1, le=5, description="Rank 1-5, where 1 is the most must-try")
+    rank: int = Field(ge=1, le=10, description="Rank 1-10, where 1 is the most must-try")
     cuisine_type: Optional[str] = Field(None, description="Cuisine style, e.g. 'Japanese'")
     tags: List[str] = Field(default_factory=list, description="Flavour/style tags e.g. ['noodle','spicy']")
     image_query: Optional[str] = Field(None, description="Suggested image search term")
@@ -58,6 +58,7 @@ class RestaurantCreate(BaseModel):
     latitude: Optional[float] = Field(None, description="Latitude extracted from Maps URL or geocoded")
     longitude: Optional[float] = Field(None, description="Longitude extracted from Maps URL or geocoded")
     photo_url: Optional[str] = Field(None, description="CDN photo URL resolved from Google Places photo reference")
+    open_now: Optional[bool] = Field(None, description="Whether the restaurant is currently open, from Places API")
     reviews: List[Dict] = Field(default_factory=list, description="Up to 5 review snippets from Google Places Details")
 
 
@@ -146,7 +147,7 @@ class DishItem(BaseModel):
     """Single dish entry returned by DishDiscoverer agent as structured output"""
     name: str
     description: str
-    rank: int = Field(ge=1, le=5)
+    rank: int = Field(ge=1, le=10)
     cuisine_type: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     image_query: Optional[str] = None
@@ -157,7 +158,7 @@ class DishDiscoveryResult(BaseModel):
     city: str
     country: str
     city_description: str
-    dishes: List[DishItem] = Field(description="Exactly 5 must-try dishes ranked 1-5")
+    dishes: List[DishItem] = Field(description="Exactly 10 must-try dishes ranked 1-10")
 
 
 class RestaurantItem(BaseModel):
@@ -173,6 +174,7 @@ class RestaurantItem(BaseModel):
     highlights: List[str] = Field(default_factory=list)
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    open_now: Optional[bool] = None
 
 
 class RestaurantRankingResult(BaseModel):

@@ -33,7 +33,7 @@ def create_agent(job_id: str, city: str, country: str, city_id: Optional[str], d
     model = LitellmModel(model=f"bedrock/{model_id}")
     context = DishDiscovererContext(job_id=job_id, city=city, country=country, city_id=city_id, db=db, dietary_preferences=dietary_preferences)
 
-    task = f"""From your training knowledge, identify the top 5 most iconic must-try food specialities of {city}, {country}."""
+    task = f"""From your training knowledge, identify the top 10 most iconic must-try food specialities of {city}, {country}."""
 
     if meal_time:
         task += f"""
@@ -49,7 +49,7 @@ Prioritise dishes that are suitable for these requirements, or clearly note in t
 
     task += """
 
-Return your answer as JSON with exactly 5 dishes ranked 1-5, following the schema in your instructions (name, description, rank, cuisine_type, tags, image_query)."""
+Return your answer as JSON with exactly 10 dishes ranked 1-10, following the schema in your instructions (name, description, rank, cuisine_type, tags, image_query)."""
 
     logger.info(f"DishDiscoverer task: {task[:400]}")
     return model, [], task, context
