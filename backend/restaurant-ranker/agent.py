@@ -156,7 +156,8 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             "places.id,places.displayName,places.formattedAddress,"
             "places.rating,places.userRatingCount,places.priceLevel,"
             "places.location,places.googleMapsUri,places.photos,"
-            "places.currentOpeningHours.openNow"
+            "places.currentOpeningHours.openNow,"
+            "places.currentOpeningHours.weekdayDescriptions"
         )
 
         r = httpx.post(
@@ -200,8 +201,10 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
             lat       = loc.get("latitude")
             lng       = loc.get("longitude")
             maps_url  = p.get("googleMapsUri", "")
-            open_now_raw = p.get("currentOpeningHours", {}).get("openNow")
+            hours_obj   = p.get("currentOpeningHours", {})
+            open_now_raw = hours_obj.get("openNow")
             open_now  = "yes" if open_now_raw is True else ("no" if open_now_raw is False else "unknown")
+            weekday_descriptions = hours_obj.get("weekdayDescriptions", [])
 
             # price_level mapping: PRICE_LEVEL_FREE/INEXPENSIVE/MODERATE/EXPENSIVE/VERY_EXPENSIVE
             price_map = {
@@ -240,12 +243,14 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
                 except Exception as e:
                     logger.warning(f"Place Details failed for {place_id}: {e}")
 
+            hours_lines = "\n".join(f"  {h}" for h in weekday_descriptions) if weekday_descriptions else "  Not available"
             block = (
                 f"**{name}**\n"
                 f"Address: {address}\n"
                 f"Rating: {rating} ({rev_count} reviews)\n"
                 f"Price: {price_str}\n"
                 f"Open now: {open_now}\n"
+                f"Opening hours:\n{hours_lines}\n"
                 f"Latitude: {lat}\n"
                 f"Longitude: {lng}\n"
                 f"Maps: {maps_url}\n"

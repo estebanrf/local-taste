@@ -77,8 +77,6 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                         "rating": rev.get("rating"),
                         "text": str(rev.get("text", ""))[:300],
                     })
-            raw_open = r.get("open_now")
-            open_now = bool(raw_open) if isinstance(raw_open, bool) else None
             rest = RestaurantCreate(
                 dish_id=dish_id_val or None,
                 name=r["name"],
@@ -93,15 +91,20 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                 latitude=lat,
                 longitude=lng,
                 photo_url=r.get("photo_url") or None,
-                open_now=open_now,
                 reviews=clean_reviews,
             )
             saved_id = db.restaurants.create_restaurant(rest)
-            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} photo={'yes' if rest.photo_url else 'no'} reviews={len(clean_reviews)} open_now={open_now}")
+            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} photo={'yes' if rest.photo_url else 'no'} reviews={len(clean_reviews)}")
             return saved_id
 
-        # Build a name→open_now lookup from the LLM output to re-attach after DB round-trip
-        open_now_by_name = {r["name"]: r.get("open_now") for r in restaurants if r.get("name")}
+        # Build a name→{open_now, opening_hours} lookup to re-attach after DB round-trip
+        hours_by_name = {
+            r["name"]: {
+                "open_now": r.get("open_now"),
+                "opening_hours": r.get("opening_hours"),
+            }
+            for r in restaurants if r.get("name")
+        }
 
         if dish_id and not category_mode:
             # Save new rows first — only delete old ones after all saves succeed
@@ -113,9 +116,11 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
             saved_ids = [_build_and_save(r, None) for r in restaurants[:5]]
             db_rows = db.restaurants.find_by_ids(saved_ids)
 
-        # Merge real-time open_now back onto DB rows (not stored in DB — changes hourly)
+        # Merge real-time open_now + opening_hours back onto DB rows (not stored — changes daily)
         for row in db_rows:
-            row["open_now"] = open_now_by_name.get(row.get("name"))
+            h = hours_by_name.get(row.get("name"), {})
+            row["open_now"] = h.get("open_now")
+            row["opening_hours"] = h.get("opening_hours")
 
         db.jobs.update_restaurants(job_id, {"dish_id": dish_id, "restaurants": db_rows})
         logger.info(f"RestaurantRanker: done, {len(db_rows)} restaurants (category_mode={category_mode})")

@@ -1,6 +1,6 @@
 """
 Dish Discoverer Lambda Handler
-Researches top-5 must-try dishes for a city and saves them to the database.
+Researches top-10 must-try dishes for a city and saves them to the database.
 """
 
 import os

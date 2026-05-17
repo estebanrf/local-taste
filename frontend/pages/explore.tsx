@@ -43,6 +43,7 @@ interface Restaurant {
   longitude: number | null;
   photo_url: string | null;
   open_now: boolean | null;
+  opening_hours: string[] | null;
   reviews: ReviewSnippet[];
 }
 
@@ -1237,7 +1238,9 @@ export default function Explore() {
                               ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/30"
                               : isHighlighted
                                 ? "border-primary ring-1 ring-primary bg-purple-50"
-                                : "border-gray-100 hover:border-primary hover:shadow-sm bg-white"
+                                : r.open_now === true
+                                  ? "border-green-200 bg-green-50/20 hover:border-green-400 hover:shadow-sm"
+                                  : "border-gray-100 hover:border-primary hover:shadow-sm bg-white"
                           }`}
                         >
                           {/* Photo */}
@@ -1261,6 +1264,11 @@ export default function Explore() {
                               <div className="flex items-start justify-between gap-1">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <h3 className="font-bold text-dark text-sm leading-snug">{r.name}</h3>
+                                  {r.open_now === true && (
+                                    <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-green-100 text-green-700 border border-green-200">
+                                      ● Open
+                                    </span>
+                                  )}
                                   {badge && (
                                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${badgeStyle[badge] ?? "bg-gray-100 text-gray-600"}`}>
                                       {badge}
@@ -1281,15 +1289,18 @@ export default function Explore() {
                                         : "text-gray-400"
                                     }`}>{r.price_level}</span>
                                   )}
-                                  {r.open_now === true && (
-                                    <span className="text-xs font-medium text-green-600">Open now</span>
-                                  )}
                                   {r.open_now === false && (
                                     <span className="text-xs font-medium text-red-400">Closed</span>
                                   )}
                                 </div>
                               </div>
                               {r.address && <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{r.address}</p>}
+                              {r.opening_hours && r.opening_hours.length > 0 && (() => {
+                                const today = r.opening_hours[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
+                                return today ? (
+                                  <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">🕐 {today}</p>
+                                ) : null;
+                              })()}
                               {r.rank_rationale && (
                                 <p className="text-xs text-gray-500 italic mt-1 line-clamp-2">&ldquo;{r.rank_rationale}&rdquo;</p>
                               )}
@@ -1366,10 +1377,10 @@ export default function Explore() {
                       <span className="text-sm font-medium text-amber-600">{detailRestaurant.price_level}</span>
                     )}
                     {detailRestaurant.open_now === true && (
-                      <span className="text-sm font-semibold text-green-600">● Open now</span>
+                      <span className="text-sm font-semibold px-2 py-0.5 bg-green-100 text-green-700 rounded-full border border-green-200">● Open now</span>
                     )}
                     {detailRestaurant.open_now === false && (
-                      <span className="text-sm font-medium text-red-400">● Closed</span>
+                      <span className="text-sm font-medium px-2 py-0.5 bg-red-50 text-red-500 rounded-full border border-red-100">● Closed</span>
                     )}
                     {detailRestaurant.address && (
                       <span className="text-xs text-gray-400">{detailRestaurant.address}</span>
@@ -1387,6 +1398,24 @@ export default function Explore() {
                       {detailRestaurant.highlights.map((h, i) => (
                         <span key={i} className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{h}</span>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Opening hours */}
+                  {detailRestaurant.opening_hours && detailRestaurant.opening_hours.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Opening hours</p>
+                      <div className="space-y-1">
+                        {detailRestaurant.opening_hours.map((line, i) => {
+                          const todayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+                          const isToday = i === todayIdx;
+                          return (
+                            <p key={i} className={`text-xs ${isToday ? "font-semibold text-green-700" : "text-gray-500"}`}>
+                              {isToday && "→ "}{line}
+                            </p>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 

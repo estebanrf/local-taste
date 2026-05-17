@@ -58,7 +58,6 @@ class RestaurantCreate(BaseModel):
     latitude: Optional[float] = Field(None, description="Latitude extracted from Maps URL or geocoded")
     longitude: Optional[float] = Field(None, description="Longitude extracted from Maps URL or geocoded")
     photo_url: Optional[str] = Field(None, description="CDN photo URL resolved from Google Places photo reference")
-    open_now: Optional[bool] = Field(None, description="Whether the restaurant is currently open, from Places API")
     reviews: List[Dict] = Field(default_factory=list, description="Up to 5 review snippets from Google Places Details")
 
 

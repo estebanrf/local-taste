@@ -14,6 +14,7 @@ _JSON_FORMAT = """{
       "review_count": 3200,
       "price_level": "$$",
       "open_now": true,
+      "opening_hours": ["Monday: 11:00 AM – 10:00 PM", "Tuesday: 11:00 AM – 10:00 PM"],
       "rank": 1,
       "rank_rationale": "...",
       "highlights": ["authentic", "queue worth it"],
