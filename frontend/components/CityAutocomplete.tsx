@@ -42,6 +42,7 @@ export default function CityAutocomplete({ onSelect, initialValue = "", disabled
   const [open, setOpen] = useState(false);
   const [mapsReady, setMapsReady] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextSearch = useRef(false);
   const listRef = useRef<HTMLUListElement>(null);
 
   // Sync if parent loads initialValue asynchronously (e.g. Passport page)
@@ -57,6 +58,7 @@ export default function CityAutocomplete({ onSelect, initialValue = "", disabled
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (skipNextSearch.current) { skipNextSearch.current = false; return; }
     if (!query.trim() || !mapsReady) { setSuggestions([]); setOpen(false); return; }
 
     debounceRef.current = setTimeout(async () => {
@@ -83,6 +85,7 @@ export default function CityAutocomplete({ onSelect, initialValue = "", disabled
     const city = s.placePrediction.mainText.text;
     const parts = s.placePrediction.secondaryText.text.split(", ");
     const country = parts[parts.length - 1] ?? "";
+    skipNextSearch.current = true;
     setQuery(s.placePrediction.text.text);
     setSuggestions([]);
     setOpen(false);
