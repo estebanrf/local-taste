@@ -67,16 +67,6 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
             lat = r.get("latitude") or lat
             lng = r.get("longitude") or lng
             raw_price = r.get("price_level") or None
-            raw_reviews = r.get("reviews") or []
-            # Normalise reviews to dicts with author/rating/text keys
-            clean_reviews = []
-            for rev in raw_reviews[:5]:
-                if isinstance(rev, dict) and rev.get("text"):
-                    clean_reviews.append({
-                        "author": rev.get("author", ""),
-                        "rating": rev.get("rating"),
-                        "text": str(rev.get("text", ""))[:300],
-                    })
             rest = RestaurantCreate(
                 dish_id=dish_id_val or None,
                 name=r["name"],
@@ -91,10 +81,9 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
                 latitude=lat,
                 longitude=lng,
                 photo_url=r.get("photo_url") or None,
-                reviews=clean_reviews,
             )
             saved_id = db.restaurants.create_restaurant(rest)
-            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} photo={'yes' if rest.photo_url else 'no'} reviews={len(clean_reviews)}")
+            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} photo={'yes' if rest.photo_url else 'no'}")
             return saved_id
 
         # Build a name→{open_now, opening_hours} lookup to re-attach after DB round-trip
@@ -107,9 +96,9 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
         }
 
         if dish_id and not category_mode:
-            # Save new rows first — only delete old ones after all saves succeed
+            # Delete existing rows first — UNIQUE(dish_id, rank) would conflict otherwise
+            db.restaurants.delete_by_dish(dish_id)
             new_ids = [_build_and_save(r, dish_id) for r in restaurants[:5]]
-            db.restaurants.delete_by_dish_except(dish_id, new_ids)
             db_rows = db.restaurants.find_by_dish(dish_id)
         else:
             # Category mode — persist to DB so restaurant_ids remain valid across sessions
