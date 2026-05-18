@@ -8,19 +8,9 @@ _JSON_FORMAT = """{
   "restaurants": [
     {
       "name": "...",
-      "address": "...",
-      "google_maps_url": "...",
-      "google_rating": 4.7,
-      "review_count": 3200,
-      "price_level": "$$",
-      "open_now": true,
-      "opening_hours": ["Monday: 11:00 AM – 10:00 PM", "Tuesday: 11:00 AM – 10:00 PM"],
       "rank": 1,
       "rank_rationale": "...",
-      "highlights": ["authentic", "queue worth it"],
-      "latitude": 48.8566,
-      "longitude": 2.3522,
-      "photo_url": "https://..."
+      "highlights": ["authentic", "queue worth it"]
     }
   ]
 }"""
@@ -34,15 +24,14 @@ _REVIEWS_NOTE = """Reviews: each result includes up to 5 real reviewer quotes. U
 - Write an accurate rank_rationale grounded in what people actually say
 - Identify specific highlights (e.g. "famous for tonkotsu broth", "long queues worth it", "best value in the area")
 - Detect red flags (e.g. "service issues", "tourist trap") that should lower the rank
-Do NOT include reviews in your JSON output — summarise them into rank_rationale and highlights only.
-If Photo is provided (not "none"), include it as photo_url in the JSON."""
+Do NOT include reviews in your JSON output — summarise them into rank_rationale and highlights only."""
 
 RESTAURANT_RANKER_INSTRUCTIONS = f"""You are the Restaurant Ranker — a local food expert who finds and ranks the best places to eat a specific dish in a city.
 
 Your task:
 1. Call search_places ONCE with the query provided in the task
 2. Use the results returned — do NOT call search_places again
-3. For each restaurant, extract: name, address, Google Maps URL, Google rating, review count, price level, open_now, rank 1-5, latitude/longitude, photo_url
+3. Use the rating, review count, price, open status and reviewer quotes to rank the candidates
 
 You will receive up to 10 candidates. Select and rank the best 5.
 
@@ -69,7 +58,7 @@ WORLD_CUISINE_RANKER_INSTRUCTIONS = f"""You are the Restaurant Ranker — a loca
 Your task:
 1. Call search_places ONCE with the query provided in the task
 2. Use the results returned — do NOT call search_places again
-3. For each restaurant, extract: name, address, Google Maps URL, Google rating, review count, price level, open_now, rank 1-5, latitude/longitude, photo_url
+3. Use the rating, review count, price, open status and reviewer quotes to rank the candidates
 
 You will receive up to 10 candidates. Select and rank the best 5.
 
@@ -96,7 +85,7 @@ OCCASION_RANKER_INSTRUCTIONS = f"""You are the Restaurant Ranker — a local foo
 Your task:
 1. Call search_places ONCE with the query provided in the task
 2. Use the results returned — do NOT call search_places again
-3. For each venue, extract: name, address, Google Maps URL, Google rating, review count, price level, open_now, rank 1-5, latitude/longitude, photo_url
+3. Use the rating, review count, price, open status and reviewer quotes to rank the candidates
 
 You will receive up to 10 candidates. Select and rank the best 5.
 

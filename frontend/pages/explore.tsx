@@ -152,6 +152,8 @@ export default function Explore() {
   const [detailRestaurant, setDetailRestaurant] = useState<Restaurant | null>(null);
   const [surpriseMode, setSurpriseMode] = useState(false);
   const [isSurpriseResult, setIsSurpriseResult] = useState(false);
+  const [surpriseRestaurantRank, setSurpriseRestaurantRank] = useState<number>(1);
+  const isSurprisePendingRef = useRef(false);
 
   // Near-me state
   const [locationMode, setLocationMode] = useState<LocationMode>("city");
@@ -278,6 +280,14 @@ export default function Explore() {
     setPollInterval(interval);
   };
 
+  const pickWeightedRank = (list: Restaurant[]): number => {
+    const sorted = [...list].sort((a, b) => a.rank - b.rank);
+    const weights = sorted.map((_, i) => sorted.length - i);
+    const total = weights.reduce((s, w) => s + w, 0);
+    let r = Math.random() * total;
+    return sorted.find((_, i) => (r -= weights[i]) < 0)?.rank ?? sorted[0]?.rank ?? 1;
+  };
+
   const runSearch = async (opts: {
     city: string;
     country: string;
@@ -335,7 +345,12 @@ export default function Explore() {
             return;
           }
           const rList = (rPayload.restaurants as Restaurant[]) || [];
-          setRestaurants([...rList].sort((a, b) => a.rank - b.rank));
+          const sorted = [...rList].sort((a, b) => a.rank - b.rank);
+          setRestaurants(sorted);
+          if (isSurprisePendingRef.current) {
+            setSurpriseRestaurantRank(pickWeightedRank(sorted));
+            isSurprisePendingRef.current = false;
+          }
           setStage("restaurants");
         });
       } catch {
@@ -388,6 +403,7 @@ export default function Explore() {
     e.preventDefault();
     setSurpriseMode(false);
     setIsSurpriseResult(false);
+    isSurprisePendingRef.current = false;
     if (geoStatus === "locating") return;
     if (locationMode === "nearby" && !geoCoords) {
       requestLocation();
@@ -411,13 +427,17 @@ export default function Explore() {
   };
 
 
-  // When surpriseMode is on and dishes arrive, auto-click the top dish
+  // When surpriseMode is on and dishes arrive, pick a dish weighted by rank (rank 1 most likely)
   useEffect(() => {
     if (surpriseMode && stage === "dishes" && dishes.length > 0) {
-      const topDish = [...dishes].sort((a, b) => a.rank - b.rank)[0];
+      const sorted = [...dishes].sort((a, b) => a.rank - b.rank);
+      const weights = sorted.map((_, i) => sorted.length - i);
+      const total = weights.reduce((s, w) => s + w, 0);
+      let r = Math.random() * total;
+      const picked = sorted.find((_, i) => (r -= weights[i]) < 0) ?? sorted[0];
       setSurpriseMode(false);
       setIsSurpriseResult(true);
-      handleDishClick(topDish);
+      handleDishClick(picked);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surpriseMode, stage, dishes]);
@@ -452,6 +472,8 @@ export default function Explore() {
     setSearchMode(randomMode);
     setSelectedCategory(randomCategory);
     setIsSurpriseResult(false);
+    setSurpriseRestaurantRank(1);
+    isSurprisePendingRef.current = true;
 
     if (randomMode === "local") {
       setSurpriseMode(true);
@@ -517,7 +539,12 @@ export default function Explore() {
         const sortByRank = (list: Restaurant[]) =>
           [...list].sort((a, b) => a.rank - b.rank);
         if (rList.length > 0) {
-          setRestaurants(sortByRank(rList));
+          const sorted = sortByRank(rList);
+          setRestaurants(sorted);
+          if (isSurprisePendingRef.current) {
+            setSurpriseRestaurantRank(pickWeightedRank(sorted));
+            isSurprisePendingRef.current = false;
+          }
           setStage("restaurants");
           setTimeout(() => restaurantsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
         } else {
@@ -528,7 +555,12 @@ export default function Explore() {
           });
           if (rRes.ok) {
             const rData = await rRes.json();
-            setRestaurants(sortByRank(rData.restaurants || []));
+            const sorted = sortByRank(rData.restaurants || []);
+            setRestaurants(sorted);
+            if (isSurprisePendingRef.current) {
+              setSurpriseRestaurantRank(pickWeightedRank(sorted));
+              isSurprisePendingRef.current = false;
+            }
           }
           setStage("restaurants");
           setTimeout(() => restaurantsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -667,10 +699,109 @@ export default function Explore() {
       <Head><title>Explore - Local Taste</title></Head>
       <Layout>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-3xl font-bold text-dark mb-2">Explore a City</h1>
             <p className="text-gray-600">Enter any city and discover its top 10 must-try dishes — then find the best places to eat them.</p>
           </div>
+
+          {/* Search form — first thing on the page */}
+          <form onSubmit={handleSearch} className="bg-white rounded-xl shadow-md p-6 mb-6 border border-purple-100">
+            {/* Location mode toggle */}
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setLocationMode("city")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                  locationMode === "city"
+                    ? "border-primary bg-purple-50 text-primary"
+                    : "border-gray-200 text-gray-600 hover:border-purple-200"
+                }`}
+              >
+                🌍 A city
+              </button>
+              <button
+                type="button"
+                onClick={requestLocation}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                  locationMode === "nearby"
+                    ? "border-primary bg-purple-50 text-primary"
+                    : "border-gray-200 text-gray-600 hover:border-purple-200"
+                }`}
+              >
+                {geoStatus === "locating" ? (
+                  <span className="animate-pulse">Locating…</span>
+                ) : (
+                  <>📍 Near me</>
+                )}
+              </button>
+            </div>
+
+            {locationMode === "nearby" && (
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Radius</span>
+                {([1, 3, 5, 10] as const).map(km => (
+                  <button
+                    key={km}
+                    type="button"
+                    onClick={() => setRadiusKm(km)}
+                    className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                      radiusKm === km
+                        ? "border-primary bg-purple-50 text-primary"
+                        : "border-gray-200 text-gray-500 hover:border-purple-200"
+                    }`}
+                  >
+                    &lt;{km} km
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              {locationMode === "nearby" ? (
+                geoStatus === "locating" ? (
+                  <div className="flex-1 flex items-center px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500 animate-pulse">
+                    Detecting your location…
+                  </div>
+                ) : geoLabel ? (
+                  <div className="flex-1 flex items-center gap-2 px-4 py-3 border border-blue-200 rounded-lg bg-blue-50 text-sm text-blue-700">
+                    📍 {geoLabel}
+                    <button
+                      type="button"
+                      onClick={() => { setLocationMode("city"); setGeoCoords(null); setGeoStatus("idle"); setGeoLabel(""); }}
+                      className="ml-auto text-blue-400 hover:text-blue-600 text-xs underline"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : null
+              ) : (
+                <CityAutocomplete
+                  key={cityKey}
+                  initialValue={cityInput}
+                  onSelect={handleCitySelect}
+                  disabled={stage === "searching" || stage === "loading_restaurants"}
+                />
+              )}
+              <div className="flex gap-3 sm:contents">
+                <button
+                  type="submit"
+                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
+                  className="flex-1 sm:flex-none px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors"
+                >
+                  {stage === "searching" || stage === "loading_restaurants" ? "Searching…" : searchMode === "local" ? "Discover" : "Find restaurants"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSurpriseMe}
+                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
+                  title="Pick a random dish and find the best restaurant for you"
+                  className="flex-1 sm:flex-none px-5 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-lg hover:from-amber-500 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-all shadow-sm"
+                >
+                  🎲 Surprise me
+                </button>
+              </div>
+            </div>
+          </form>
 
           {/* Food category selector */}
           <div className="bg-white rounded-xl shadow p-6 mb-4">
@@ -869,105 +1000,6 @@ export default function Explore() {
               )}
             </div>
           </div>
-
-          {/* Search form */}
-          <form onSubmit={handleSearch} className="bg-white rounded-lg shadow p-6 mb-8">
-            {/* Location mode toggle */}
-            <div className="flex gap-2 mb-4">
-              <button
-                type="button"
-                onClick={() => setLocationMode("city")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
-                  locationMode === "city"
-                    ? "border-primary bg-purple-50 text-primary"
-                    : "border-gray-200 text-gray-600 hover:border-purple-200"
-                }`}
-              >
-                🌍 A city
-              </button>
-              <button
-                type="button"
-                onClick={requestLocation}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
-                  locationMode === "nearby"
-                    ? "border-primary bg-purple-50 text-primary"
-                    : "border-gray-200 text-gray-600 hover:border-purple-200"
-                }`}
-              >
-                {geoStatus === "locating" ? (
-                  <span className="animate-pulse">Locating…</span>
-                ) : (
-                  <>📍 Near me</>
-                )}
-              </button>
-            </div>
-
-            {locationMode === "nearby" && (
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">Radius</span>
-                {([1, 3, 5, 10] as const).map(km => (
-                  <button
-                    key={km}
-                    type="button"
-                    onClick={() => setRadiusKm(km)}
-                    className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
-                      radiusKm === km
-                        ? "border-primary bg-purple-50 text-primary"
-                        : "border-gray-200 text-gray-500 hover:border-purple-200"
-                    }`}
-                  >
-                    &lt;{km} km
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              {locationMode === "nearby" ? (
-                geoStatus === "locating" ? (
-                  <div className="flex-1 flex items-center px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500 animate-pulse">
-                    Detecting your location…
-                  </div>
-                ) : geoLabel ? (
-                  <div className="flex-1 flex items-center gap-2 px-4 py-3 border border-blue-200 rounded-lg bg-blue-50 text-sm text-blue-700">
-                    📍 {geoLabel}
-                    <button
-                      type="button"
-                      onClick={() => { setLocationMode("city"); setGeoCoords(null); setGeoStatus("idle"); setGeoLabel(""); }}
-                      className="ml-auto text-blue-400 hover:text-blue-600 text-xs underline"
-                    >
-                      Change
-                    </button>
-                  </div>
-                ) : null
-              ) : (
-                <CityAutocomplete
-                  key={cityKey}
-                  initialValue={cityInput}
-                  onSelect={handleCitySelect}
-                  disabled={stage === "searching" || stage === "loading_restaurants"}
-                />
-              )}
-              <div className="flex gap-3 sm:contents">
-                <button
-                  type="submit"
-                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
-                  className="flex-1 sm:flex-none px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors"
-                >
-                  {stage === "searching" || stage === "loading_restaurants" ? "Searching…" : searchMode === "local" ? "Discover" : "Find restaurants"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSurpriseMe}
-                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
-                  title="Pick a random dish and find the best restaurant for you"
-                  className="flex-1 sm:flex-none px-5 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-lg hover:from-amber-500 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-all shadow-sm"
-                >
-                  🎲 Surprise me
-                </button>
-              </div>
-            </div>
-          </form>
 
           {/* Loading state */}
           {(stage === "searching" || stage === "loading_restaurants") && (
@@ -1211,7 +1243,7 @@ export default function Explore() {
                   {/* Restaurant list — uncapped on mobile (natural scroll), capped on desktop */}
                   <div className="lg:col-span-1 space-y-3 lg:overflow-y-auto lg:max-h-[400px]">
                     {restaurants.map((r) => {
-                      const isSurprisePick = isSurpriseResult && r.rank === 1;
+                      const isSurprisePick = isSurpriseResult && r.rank === surpriseRestaurantRank;
                       const badge = isSurprisePick ? "Surprise!" : getRestaurantBadge(r);
                       const badgeStyle: Record<string, string> = {
                         "Surprise!":            "bg-gradient-to-r from-amber-400 to-orange-400 text-white font-bold",

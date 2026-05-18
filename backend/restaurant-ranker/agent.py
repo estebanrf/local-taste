@@ -6,8 +6,8 @@ Uses Google Maps Places API (New) for all location queries.
 import os
 import math
 import logging
-from typing import Any, List, Optional
-from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -36,6 +36,8 @@ class RestaurantRankerContext:
     radius_km: int = 5                 # Near me radius
     city_lat: Optional[float] = None   # geocoded city centre
     city_lng: Optional[float] = None
+    # Populated by search_places — keyed by restaurant name
+    place_data: Dict[str, Dict] = field(default_factory=dict)
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -243,21 +245,29 @@ async def search_places(wrapper: RunContextWrapper[RestaurantRankerContext], que
                 except Exception as e:
                     logger.warning(f"Place Details failed for {place_id}: {e}")
 
-            hours_lines = "\n".join(f"  {h}" for h in weekday_descriptions) if weekday_descriptions else "  Not available"
+            # Store all factual data in context — agent only needs to output name + ranking fields
+            ctx.place_data[name] = {
+                "address": address,
+                "google_maps_url": maps_url,
+                "google_rating": rating,
+                "review_count": rev_count,
+                "price_level": price_str,
+                "open_now": open_now_raw,
+                "opening_hours": weekday_descriptions,
+                "latitude": lat,
+                "longitude": lng,
+                "photo_url": photo_url,
+            }
+
+            # Lean text block for the agent — enough to rank well, nothing to echo back
             block = (
                 f"**{name}**\n"
-                f"Address: {address}\n"
                 f"Rating: {rating} ({rev_count} reviews)\n"
                 f"Price: {price_str}\n"
                 f"Open now: {open_now}\n"
-                f"Opening hours:\n{hours_lines}\n"
-                f"Latitude: {lat}\n"
-                f"Longitude: {lng}\n"
-                f"Maps: {maps_url}\n"
-                f"Photo: {photo_url or 'none'}"
             )
             if review_lines:
-                block += "\nReviews:\n" + "\n".join(review_lines)
+                block += "Reviews:\n" + "\n".join(review_lines)
             lines.append(block)
 
         open_count = sum(1 for p in results if p.get("currentOpeningHours", {}).get("openNow") is True)

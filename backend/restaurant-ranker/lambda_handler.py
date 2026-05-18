@@ -39,7 +39,7 @@ def _extract_coords(maps_url: str):
     return None, None
 
 
-def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_mode: bool = False) -> None:
+def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_mode: bool = False, place_data: dict = None) -> None:
     try:
         raw = result_text.strip()
         start = raw.find("{")
@@ -63,37 +63,33 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
         valid_prices = {"$", "$$", "$$$", "$$$$"}
 
         def _build_and_save(r: dict, dish_id_val) -> str:
-            lat, lng = _extract_coords(r.get("google_maps_url"))
-            lat = r.get("latitude") or lat
-            lng = r.get("longitude") or lng
-            raw_price = r.get("price_level") or None
+            name = r["name"]
+            # Merge factual data from context (authoritative) with agent output (rank/rationale/highlights)
+            p = (place_data or {}).get(name, {})
+            maps_url = p.get("google_maps_url") or r.get("google_maps_url")
+            lat, lng = _extract_coords(maps_url)
+            lat = p.get("latitude") or lat
+            lng = p.get("longitude") or lng
+            raw_price = p.get("price_level") or r.get("price_level") or None
             rest = RestaurantCreate(
                 dish_id=dish_id_val or None,
-                name=r["name"],
-                address=r.get("address"),
-                google_maps_url=r.get("google_maps_url") or None,
-                google_rating=r.get("google_rating"),
-                review_count=r.get("review_count"),
+                name=name,
+                address=p.get("address") or r.get("address"),
+                google_maps_url=maps_url or None,
+                google_rating=p.get("google_rating") or r.get("google_rating"),
+                review_count=p.get("review_count") or r.get("review_count"),
                 price_level=raw_price if raw_price in valid_prices else None,
                 rank=r.get("rank", 1),
                 rank_rationale=r.get("rank_rationale", ""),
                 highlights=r.get("highlights", []),
                 latitude=lat,
                 longitude=lng,
-                photo_url=r.get("photo_url") or None,
+                photo_url=p.get("photo_url") or r.get("photo_url") or None,
+                opening_hours=p.get("opening_hours") or [],
             )
             saved_id = db.restaurants.create_restaurant(rest)
-            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={r['name']} photo={'yes' if rest.photo_url else 'no'}")
+            logger.info(f"RestaurantRanker: saved restaurant rank={r.get('rank')} name={name} photo={'yes' if rest.photo_url else 'no'}")
             return saved_id
-
-        # Build a name→{open_now, opening_hours} lookup to re-attach after DB round-trip
-        hours_by_name = {
-            r["name"]: {
-                "open_now": r.get("open_now"),
-                "opening_hours": r.get("opening_hours"),
-            }
-            for r in restaurants if r.get("name")
-        }
 
         if dish_id and not category_mode:
             # Delete existing rows first — UNIQUE(dish_id, rank) would conflict otherwise
@@ -105,11 +101,10 @@ def _save_ranking_results(job_id: str, result_text: str, dish_id: str, category_
             saved_ids = [_build_and_save(r, None) for r in restaurants[:5]]
             db_rows = db.restaurants.find_by_ids(saved_ids)
 
-        # Merge real-time open_now + opening_hours back onto DB rows (not stored — changes daily)
+        # Merge real-time open_now back onto DB rows (not stored — changes hourly)
         for row in db_rows:
-            h = hours_by_name.get(row.get("name"), {})
-            row["open_now"] = h.get("open_now")
-            row["opening_hours"] = h.get("opening_hours")
+            p = (place_data or {}).get(row.get("name"), {})
+            row["open_now"] = p.get("open_now")
 
         db.jobs.update_restaurants(job_id, {"dish_id": dish_id, "restaurants": db_rows})
         logger.info(f"RestaurantRanker: done, {len(db_rows)} restaurants (category_mode={category_mode})")
@@ -182,6 +177,7 @@ async def run_restaurant_ranker(job_id: str) -> None:
         result_text=result.final_output,
         dish_id=dish_id,
         category_mode=category_mode,
+        place_data=context.place_data,
     )
 
 
