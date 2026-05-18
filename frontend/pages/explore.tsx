@@ -701,11 +701,13 @@ export default function Explore() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6">
             <h1 className="text-3xl font-bold text-dark mb-2">Explore a City</h1>
-            <p className="text-gray-600">Enter any city and discover its top 10 must-try dishes — then find the best places to eat them.</p>
+            <p className="text-gray-600">Drop any city and discover what locals eat — or choose a cuisine, occasion, or vibe and we&apos;ll find the best spots for it.</p>
           </div>
 
-          {/* Search form — first thing on the page */}
-          <form onSubmit={handleSearch} className="bg-white rounded-xl shadow-md p-6 mb-6 border border-purple-100">
+          {/* Form wraps both search card + options card so button at the bottom submits */}
+          <form onSubmit={handleSearch}>
+          {/* Location card */}
+          <div className="bg-white rounded-xl shadow-md p-6 mb-6 border border-purple-100">
             {/* Location mode toggle */}
             <div className="flex gap-2 mb-4">
               <button
@@ -782,26 +784,8 @@ export default function Explore() {
                   disabled={stage === "searching" || stage === "loading_restaurants"}
                 />
               )}
-              <div className="flex gap-3 sm:contents">
-                <button
-                  type="submit"
-                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
-                  className="flex-1 sm:flex-none px-6 py-3 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-colors"
-                >
-                  {stage === "searching" || stage === "loading_restaurants" ? "Searching…" : searchMode === "local" ? "Discover" : "Find restaurants"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSurpriseMe}
-                  disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
-                  title="Pick a random dish and find the best restaurant for you"
-                  className="flex-1 sm:flex-none px-5 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-lg hover:from-amber-500 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-base sm:text-lg transition-all shadow-sm"
-                >
-                  🎲 Surprise me
-                </button>
-              </div>
             </div>
-          </form>
+          </div>{/* end location card */}
 
           {/* Food category selector */}
           <div className="bg-white rounded-xl shadow p-6 mb-4">
@@ -999,7 +983,28 @@ export default function Explore() {
                 </div>
               )}
             </div>
-          </div>
+
+            {/* Search buttons — bottom of options card */}
+            <div className="flex gap-3 mt-6 pt-5 border-t border-gray-100">
+              <button
+                type="submit"
+                disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
+                className="flex-1 px-6 py-3 bg-primary text-white rounded-xl hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold text-base transition-colors shadow-sm"
+              >
+                {stage === "searching" || stage === "loading_restaurants" ? "Searching…" : searchMode === "local" ? "Discover" : "Find restaurants"}
+              </button>
+              <button
+                type="button"
+                onClick={handleSurpriseMe}
+                disabled={stage === "searching" || stage === "loading_restaurants" || geoStatus === "locating"}
+                title="Pick a random dish and find the best restaurant for you"
+                className="px-5 py-3 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-xl hover:from-amber-500 hover:to-orange-500 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-base transition-all shadow-sm"
+              >
+                🎲 Surprise me
+              </button>
+            </div>
+          </div>{/* end options card */}
+          </form>
 
           {/* Loading state */}
           {(stage === "searching" || stage === "loading_restaurants") && (

@@ -46,6 +46,9 @@ interface MapRestaurant {
   google_rating: number | null;
   address: string | null;
   google_maps_url: string | null;
+  photo_url: string | null;
+  opening_hours: string[] | null;
+  price_level: string | null;
 }
 
 export default function Passport() {
@@ -58,8 +61,8 @@ export default function Passport() {
   const [loading, setLoading] = useState(true);
   const [itineraries, setItineraries] = useState<{ id: string; name: string }[]>([]);
 
-  // Settings drawer
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Profile edit mode
+  const [profileEditing, setProfileEditing] = useState(false);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>([]);
   const [displayName, setDisplayName] = useState("");
   const [homeCity, setHomeCity] = useState("");
@@ -77,8 +80,8 @@ export default function Passport() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [openTripPickerId, setOpenTripPickerId] = useState<string | null>(null);
 
-  // Map state
-  const [mapExpandedCity, setMapExpandedCity] = useState<string | null>(null);
+  // Map state — expandedCityKey format: "city|country"
+  const [expandedCityKey, setExpandedCityKey] = useState<string | null>(null);
   const [mapRestaurants, setMapRestaurants] = useState<MapRestaurant[]>([]);
   const [mapLoadingRestaurants, setMapLoadingRestaurants] = useState(false);
   const [mapSelectedId, setMapSelectedId] = useState<string | null>(null);
@@ -140,12 +143,12 @@ export default function Passport() {
     return map;
   };
 
-  const openMapCity = useCallback(async (city: string, restaurantIds: string[], force = false) => {
-    if (!force && mapExpandedCity === city) {
-      setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedId(null); setMapFocusCoords(null);
+  const openMapCity = useCallback(async (cityKey: string, city: string, restaurantIds: string[], force = false) => {
+    if (!force && expandedCityKey === cityKey) {
+      setExpandedCityKey(null); setMapRestaurants([]); setMapSelectedId(null); setMapFocusCoords(null);
       return;
     }
-    setMapExpandedCity(city);
+    setExpandedCityKey(cityKey);
     setMapSelectedId(null);
     const coords = CITY_COORDS[city];
     if (coords) setMapFocusCoords({ lat: coords[0], lng: coords[1] });
@@ -163,7 +166,7 @@ export default function Passport() {
     } catch { /* silent */ } finally {
       setMapLoadingRestaurants(false);
     }
-  }, [mapExpandedCity, getToken]);
+  }, [expandedCityKey, getToken]);
 
   // ── City filter ───────────────────────────────────────────────────────────
 
@@ -174,9 +177,10 @@ export default function Passport() {
     setSelectedEntryId(null);
     setEditingId(null);
     if (value === "all") {
-      setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedId(null); setMapFocusCoords(null);
+      setExpandedCityKey(null); setMapRestaurants([]); setMapSelectedId(null); setMapFocusCoords(null);
     } else {
-      openMapCity(value, restIds[value] ?? [], true);
+      const country = entries.find(e => e.city_name === value)?.country ?? "";
+      openMapCity(`${value}|${country}`, value, restIds[value] ?? [], true);
     }
   };
 
@@ -209,7 +213,8 @@ export default function Passport() {
       });
       if (!res.ok) throw new Error();
       showToast("success", "Profile saved!");
-      setSettingsOpen(false);
+      setProfileEditing(false);
+
     } catch { showToast("error", "Failed to save profile"); } finally { setSaving(false); }
   };
 
@@ -288,30 +293,38 @@ export default function Passport() {
 
   const cities = Array.from(new Set(entries.map(e => e.city_name))).sort();
   const filtered = cityFilter === "all" ? entries : entries.filter(e => e.city_name === cityFilter);
-  const grouped: { city: string; country: string; items: PassportEntry[] }[] = (() => {
+  const grouped: { key: string; city: string; country: string; items: PassportEntry[] }[] = (() => {
     if (cityFilter !== "all") {
-      return filtered.length > 0 ? [{ city: filtered[0].city_name, country: filtered[0].country, items: filtered }] : [];
+      if (filtered.length === 0) return [];
+      const country = filtered[0].country;
+      return [{ key: `${filtered[0].city_name}|${country}`, city: filtered[0].city_name, country, items: filtered }];
     }
-    return cities.map(city => ({
-      city,
-      country: entries.find(e => e.city_name === city)?.country ?? "",
-      items: entries.filter(e => e.city_name === city),
-    }));
+    return cities.map(city => {
+      const country = entries.find(e => e.city_name === city)?.country ?? "";
+      return {
+        key: `${city}|${country}`,
+        city,
+        country,
+        items: entries.filter(e => e.city_name === city),
+      };
+    });
   })();
 
   const selectedEntry = entries.find(e => e.id === selectedEntryId) ?? null;
 
   // ── Map items ─────────────────────────────────────────────────────────────
 
-  const mapItems = mapExpandedCity
+  const expandedCity = expandedCityKey ? expandedCityKey.split("|")[0] : null;
+
+  const mapItems = expandedCity
     ? mapRestaurants
         .filter(r => r.latitude != null && r.longitude != null)
         .map(r => ({
           id: r.id,
           dish_id: null,
           dish_name: r.name,
-          city_name: mapExpandedCity,
-          country: entries.find(e => e.city_name === mapExpandedCity)?.country ?? "",
+          city_name: expandedCity,
+          country: entries.find(e => e.city_name === expandedCity)?.country ?? "",
           notes: r.address,
           dish_description: null,
           cuisine_type: null,
@@ -349,6 +362,16 @@ export default function Passport() {
         };
       });
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const todayHours = (hours: string[] | null | undefined): string | null => {
+    if (!hours || hours.length === 0) return null;
+    const day = new Date().getDay(); // 0=Sun…6=Sat
+    // Google returns ["Monday: 9:00–22:00", …] starting Monday (index 0 = Monday)
+    const idx = day === 0 ? 6 : day - 1;
+    return hours[idx] ?? hours[0] ?? null;
+  };
+
   // ── Sub-components ────────────────────────────────────────────────────────
 
   const StarRating = ({ value, onChange }: { value: number; onChange: (v: number) => void }) => (
@@ -383,83 +406,61 @@ export default function Passport() {
               <h1 className="text-3xl font-bold text-dark">🛂 My Passport</h1>
               <p className="text-gray-500 text-sm mt-1">Your culinary adventures, logged for life.</p>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSettingsOpen(o => !o)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-500 hover:border-primary hover:text-primary transition-colors"
-              >⚙ Profile</button>
-              <Link href="/explore">
-                <button className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 font-medium transition-colors text-sm">
-                  + Explore
-                </button>
-              </Link>
-            </div>
+            <Link href="/explore">
+              <button className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 font-medium transition-colors text-sm">
+                + Explore
+              </button>
+            </Link>
           </div>
 
-          {/* ── Stats ────────────────────────────────────────────────────── */}
-          {stats && (
-            <div className="grid grid-cols-4 gap-3 mb-6">
-              <div className="bg-white rounded-lg shadow p-4 text-center">
-                <p className="text-2xl font-bold text-primary">{stats.total_dishes}</p>
-                <p className="text-xs text-gray-500 mt-0.5">Dishes</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4 text-center">
-                <p className="text-2xl font-bold text-dark">{stats.cities_visited}</p>
-                <p className="text-xs text-gray-500 mt-0.5">Cities</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4 text-center">
-                <p className="text-2xl font-bold text-dark">{stats.cuisine_types}</p>
-                <p className="text-xs text-gray-500 mt-0.5">Cuisines</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4 text-center">
-                <p className="text-2xl font-bold text-dark">{stats.avg_rating ? stats.avg_rating.toFixed(1) : "—"}</p>
-                <p className="text-xs text-gray-500 mt-0.5">Avg Rating</p>
-              </div>
-            </div>
-          )}
-
-          {/* ── Completion bar (inline, compact) ─────────────────────────── */}
-          {!loading && completionPct < 100 && (
-            <div className="bg-white rounded-xl shadow px-5 py-3 mb-6 flex items-center gap-4">
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-dark">Passport {completionPct}% complete</span>
-                  <button onClick={() => setSettingsOpen(true)} className="text-xs text-primary hover:underline">Complete ↗</button>
+          {/* ── Profile (always visible) ──────────────────────────────────── */}
+          <div className="bg-white rounded-xl shadow p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-bold text-dark">Profile</h2>
+              {profileEditing ? (
+                <div className="flex items-center gap-2">
+                  <button onClick={handleSaveProfile} disabled={saving}
+                    className="px-4 py-1.5 bg-primary text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium transition-colors">
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                  <button onClick={() => setProfileEditing(false)}
+                    className="px-4 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-sm hover:border-gray-400 transition-colors">
+                    Cancel
+                  </button>
                 </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-primary to-purple-400 rounded-full transition-all duration-500" style={{ width: `${completionPct}%` }} />
-                </div>
-              </div>
-              <div className="hidden sm:flex gap-3">
-                {completionSteps.map(s => (
-                  <span key={s.label} className={`text-xs flex items-center gap-0.5 ${s.done ? "text-green-600" : "text-gray-300"}`}>
-                    {s.done ? "✓" : "○"} {s.label}
-                  </span>
-                ))}
-              </div>
+              ) : (
+                <button onClick={() => setProfileEditing(true)}
+                  className="px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-sm hover:border-primary hover:text-primary transition-colors">
+                  Edit
+                </button>
+              )}
             </div>
-          )}
 
-          {/* ── Settings drawer ───────────────────────────────────────────── */}
-          {settingsOpen && (
-            <div className="bg-white rounded-xl shadow p-6 mb-6 border border-purple-100">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-bold text-dark">Profile & Preferences</h2>
-                <button onClick={() => setSettingsOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+            {/* Name + home city */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Display Name</label>
+                {profileEditing ? (
                   <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Home City</label>
-                  <CityAutocomplete initialValue={homeCity} onSelect={(city, country) => setHomeCity(`${city}, ${country}`)} />
-                </div>
+                ) : (
+                  <p className="text-sm text-dark font-medium">{displayName || <span className="text-gray-300 italic">Not set</span>}</p>
+                )}
               </div>
-              <div className="mb-4">
-                <p className="text-sm font-medium text-gray-700 mb-2">Dietary preferences</p>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Home City</label>
+                {profileEditing ? (
+                  <CityAutocomplete initialValue={homeCity} onSelect={(city, country) => setHomeCity(`${city}, ${country}`)} />
+                ) : (
+                  <p className="text-sm text-dark font-medium">{homeCity || <span className="text-gray-300 italic">Not set</span>}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Dietary preferences */}
+            <div>
+              <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Dietary Preferences</p>
+              {profileEditing ? (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {DIETARY_OPTIONS.map(opt => {
                     const active = dietaryPrefs.includes(opt.id);
@@ -474,13 +475,41 @@ export default function Passport() {
                     );
                   })}
                 </div>
-              </div>
-              <button onClick={handleSaveProfile} disabled={saving}
-                className="px-5 py-2 bg-primary text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed font-medium transition-colors text-sm">
-                {saving ? "Saving…" : "Save Profile"}
-              </button>
+              ) : dietaryPrefs.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {dietaryPrefs.map(p => {
+                    const opt = DIETARY_OPTIONS.find(o => o.id === p);
+                    return (
+                      <span key={p} className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full font-medium border border-purple-100">
+                        {opt?.emoji} {opt?.label ?? p}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-300 italic">None set — <button onClick={() => setProfileEditing(true)} className="text-primary hover:underline not-italic">add preferences</button></p>
+              )}
             </div>
-          )}
+
+            {/* Completion bar */}
+            {!loading && completionPct < 100 && (
+              <div className="mt-5 pt-4 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-gray-400">Passport {completionPct}% complete</span>
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
+                  <div className="h-full bg-gradient-to-r from-primary to-purple-400 rounded-full transition-all duration-500" style={{ width: `${completionPct}%` }} />
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {completionSteps.map(s => (
+                    <span key={s.label} className={`text-xs flex items-center gap-1 ${s.done ? "text-green-600" : "text-gray-300"}`}>
+                      {s.done ? "✓" : "○"} {s.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* ── Main content ──────────────────────────────────────────────── */}
           {loading ? (
@@ -497,16 +526,29 @@ export default function Passport() {
           ) : (
             <>
               {/* Section header */}
-              <div className="flex items-end justify-between mb-4 flex-wrap gap-3">
+              <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
                 <div>
                   <h2 className="text-xl font-bold text-dark">
                     {cityFilter === "all" ? "Your culinary map" : cityFilter}
                   </h2>
-                  <p className="text-sm text-gray-400 mt-0.5">
-                    {cityFilter === "all"
-                      ? `${cities.length} cit${cities.length !== 1 ? "ies" : "y"} · ${entries.length} dish${entries.length !== 1 ? "es" : ""} tried`
-                      : `${filtered.length} dish${filtered.length !== 1 ? "es" : ""} tried · ${filtered[0]?.country ?? ""}`}
-                  </p>
+                  {stats && cityFilter === "all" && (
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      <span className="text-sm text-gray-500"><span className="font-semibold text-primary">{stats.total_dishes}</span> dishes tried</span>
+                      <span className="text-gray-200">·</span>
+                      <span className="text-sm text-gray-500"><span className="font-semibold text-dark">{stats.cities_visited}</span> cities</span>
+                      <span className="text-gray-200">·</span>
+                      <span className="text-sm text-gray-500"><span className="font-semibold text-dark">{stats.cuisine_types}</span> cuisines</span>
+                      {stats.avg_rating && <>
+                        <span className="text-gray-200">·</span>
+                        <span className="text-sm text-gray-500">avg <span className="font-semibold text-violet-500">★ {stats.avg_rating.toFixed(1)}</span></span>
+                      </>}
+                    </div>
+                  )}
+                  {cityFilter !== "all" && (
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      {filtered.length} dish{filtered.length !== 1 ? "es" : ""} tried · {filtered[0]?.country ?? ""}
+                    </p>
+                  )}
                 </div>
                 <select
                   value={cityFilter}
@@ -527,97 +569,96 @@ export default function Passport() {
                 <div className="lg:col-span-2 space-y-4">
 
                   {/* Map */}
-                  <div className="bg-white rounded-xl shadow overflow-hidden" style={{ height: 360 }}>
-                    {mapExpandedCity && (
-                      <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100">
-                        <button
-                          onClick={() => {
-                            setMapExpandedCity(null); setMapRestaurants([]); setMapSelectedId(null); setMapFocusCoords(null);
-                            if (cityFilter !== "all") { setCityFilter("all"); setSelectedEntryId(null); }
-                          }}
-                          className="text-xs text-primary hover:underline">← All cities</button>
-                        <span className="text-xs text-gray-400">·</span>
-                        <span className="text-xs font-medium text-dark">{mapExpandedCity}</span>
-                        {mapLoadingRestaurants && <span className="text-xs text-gray-400 animate-pulse ml-1">Loading…</span>}
-                      </div>
-                    )}
-                    <div style={{ height: mapExpandedCity ? 320 : 360 }}>
-                      <ItineraryMap
-                        items={mapItems}
-                        selectedItem={mapSelectedId ? mapItems.find(m => m.id === mapSelectedId) ?? null : null}
-                        focusCoords={mapFocusCoords}
-                        highlightedRestaurantId={mapSelectedId}
-                        onPinClick={item => {
-                          if (!mapExpandedCity) {
-                            // City pin → zoom into city
-                            setCityFilter(item.city_name);
-                            openMapCity(item.city_name, restIds[item.city_name] ?? []);
-                          } else {
-                            // Restaurant pin → select entry in list
-                            const nextId = mapSelectedId === item.id ? null : item.id;
-                            setMapSelectedId(nextId);
-                            if (item.latitude && item.longitude) setMapFocusCoords({ lat: item.latitude, lng: item.longitude });
-                            // Highlight matching passport entry
-                            if (nextId) {
-                              const match = entries.find(e => e.restaurant_id === nextId);
-                              if (match) setSelectedEntryId(match.id);
-                            }
+                  <div className="bg-white rounded-xl shadow overflow-hidden" style={{ height: 340 }}>
+                    <ItineraryMap
+                      items={mapItems}
+                      selectedItem={mapSelectedId ? mapItems.find(m => m.id === mapSelectedId) ?? null : null}
+                      focusCoords={mapFocusCoords}
+                      highlightedRestaurantId={mapSelectedId}
+                      onPinClick={item => {
+                        if (!expandedCity) {
+                          // City pin → expand that city accordion
+                          const country = entries.find(e => e.city_name === item.city_name)?.country ?? "";
+                          const key = `${item.city_name}|${country}`;
+                          openMapCity(key, item.city_name, restIds[item.city_name] ?? []);
+                        } else {
+                          // Restaurant pin → select entry in list
+                          const nextId = mapSelectedId === item.id ? null : item.id;
+                          setMapSelectedId(nextId);
+                          if (item.latitude && item.longitude) setMapFocusCoords({ lat: item.latitude, lng: item.longitude });
+                          if (nextId) {
+                            const match = entries.find(e => e.restaurant_id === nextId);
+                            if (match) setSelectedEntryId(match.id);
                           }
-                        }}
-                      />
-                    </div>
+                        }
+                      }}
+                    />
                   </div>
 
-                  {/* Grouped entry list */}
-                  <div className="space-y-5">
-                    {grouped.map(({ city, country, items }) => (
-                      <div key={city}>
-                        {cityFilter === "all" && (
-                          <div className="flex items-center gap-2 mb-2">
-                            <h2 className="text-sm font-bold text-dark">{city}</h2>
-                            <span className="text-xs text-gray-400">{country} · {items.length} dish{items.length !== 1 ? "es" : ""}</span>
-                            <button
-                              onClick={() => openMapCity(city, restIds[city] ?? [])}
-                              className="ml-auto text-xs text-primary hover:underline"
-                            >Show on map →</button>
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          {items.map(entry => (
-                            <button
-                              key={entry.id}
-                              type="button"
-                              onClick={() => setSelectedEntryId(selectedEntryId === entry.id ? null : entry.id)}
-                              className={`w-full text-left bg-white rounded-lg shadow px-4 py-3 transition-all border-2 ${
-                                selectedEntryId === entry.id ? "border-primary" : "border-transparent hover:border-purple-200"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium text-dark text-sm truncate">{entry.dish_name}</p>
-                                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                    {entry.cuisine_type && (
-                                      <span className="text-xs text-purple-500">{entry.cuisine_type}</span>
-                                    )}
-                                    {entry.restaurant_name && (
-                                      <span className="text-xs text-gray-400">at {entry.restaurant_name}</span>
-                                    )}
+                  {/* City accordion — same pattern as Plan */}
+                  <div className="space-y-3">
+                    {grouped.map(({ key, city, country, items: groupItems }) => {
+                      const isExpanded = expandedCityKey === key;
+                      return (
+                        <div key={key} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                          {/* City header */}
+                          <button
+                            onClick={() => openMapCity(key, city, restIds[city] ?? [])}
+                            className={`w-full flex items-center gap-3 px-5 py-4 text-left transition-colors ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50"}`}
+                          >
+                            <span className="text-base font-bold text-dark">📍 {city}, {country}</span>
+                            <span className="text-xs text-gray-400 font-normal">
+                              {groupItems.length} dish{groupItems.length !== 1 ? "es" : ""}
+                            </span>
+                            <span className="ml-auto flex items-center gap-2">
+                              {mapLoadingRestaurants && isExpanded && (
+                                <span className="text-xs text-gray-400 animate-pulse">Loading…</span>
+                              )}
+                              <span className="text-gray-400 text-xs transition-transform" style={{ transform: isExpanded ? "rotate(180deg)" : "none" }}>▼</span>
+                            </span>
+                          </button>
+
+                          {/* Dish rows — only when expanded */}
+                          {isExpanded && (
+                            <div className="border-t border-gray-100 divide-y divide-gray-50">
+                              {groupItems.map(entry => {
+                                const isSelected = selectedEntryId === entry.id;
+                                return (
+                                  <div
+                                    key={entry.id}
+                                    onClick={() => setSelectedEntryId(isSelected ? null : entry.id)}
+                                    className={`flex cursor-pointer transition-all hover:bg-gray-50 overflow-hidden ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
+                                  >
+                                    <div className="w-1 flex-shrink-0 bg-violet-400" />
+                                    <div className="flex-1 px-4 py-3 flex items-center gap-3 min-w-0">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-semibold text-dark text-sm">{entry.dish_name}</span>
+                                          {entry.cuisine_type && (
+                                            <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">{entry.cuisine_type}</span>
+                                          )}
+                                        </div>
+                                        {entry.restaurant_name && (
+                                          <p className="text-xs text-gray-400 mt-0.5">at {entry.restaurant_name}</p>
+                                        )}
+                                      </div>
+                                      <div className="flex-shrink-0 flex flex-col items-end gap-1">
+                                        {entry.rating && (
+                                          <span className="text-violet-400 text-xs">{"★".repeat(entry.rating)}</span>
+                                        )}
+                                        <span className="text-xs text-gray-300">
+                                          {new Date(entry.tasted_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                                        </span>
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  {entry.rating && (
-                                    <span className="text-violet-400 text-xs">{"★".repeat(entry.rating)}</span>
-                                  )}
-                                  <span className="text-xs text-gray-300">
-                                    {new Date(entry.tasted_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
-                                  </span>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -643,44 +684,103 @@ export default function Passport() {
                               className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-sm">Cancel</button>
                           </div>
                         </div>
-                      ) : (
+                      ) : (() => {
+                        const rest = selectedEntry.restaurant_id
+                          ? mapRestaurants.find(r => r.id === selectedEntry.restaurant_id) ?? null
+                          : null;
+                        const hours = todayHours(rest?.opening_hours);
+                        // strip "Monday: " prefix if present
+                        const hoursLabel = hours ? hours.replace(/^[^:]+:\s*/, "") : null;
+                        return (
                         <div>
+                          {/* Close */}
                           <div className="flex items-start justify-between gap-2 mb-3">
                             <div className="flex-1 min-w-0">
-                              <h3 className="font-semibold text-dark text-base leading-tight">{selectedEntry.dish_name}</h3>
-                              <p className="text-xs text-gray-500 mt-0.5">📍 {selectedEntry.city_name}, {selectedEntry.country}</p>
+                              <span className="text-xs text-gray-400 uppercase tracking-wider">{selectedEntry.dish_name}</span>
+                              <p className="text-xs text-gray-400 mt-0.5">📍 {selectedEntry.city_name}, {selectedEntry.country}</p>
                             </div>
                             <button onClick={() => setSelectedEntryId(null)} className="text-gray-300 hover:text-gray-500 text-lg leading-none flex-shrink-0">✕</button>
                           </div>
 
-                          {selectedEntry.cuisine_type && (
-                            <span className="inline-block px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs mb-3">{selectedEntry.cuisine_type}</span>
+                          {/* Restaurant card */}
+                          {rest ? (
+                            <div className="rounded-xl border border-gray-100 overflow-hidden mb-3">
+                              {/* Photo */}
+                              {rest.photo_url && (
+                                <div className="w-full h-36 bg-gray-100 overflow-hidden">
+                                  <img src={rest.photo_url} alt={rest.name} className="w-full h-full object-cover" />
+                                </div>
+                              )}
+                              <div className="p-3">
+                                {/* Name + price */}
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <p className="font-semibold text-dark text-sm leading-snug">{rest.name}</p>
+                                  {rest.price_level && <span className="text-xs text-gray-400 flex-shrink-0">{rest.price_level}</span>}
+                                </div>
+
+                                {/* Dual ratings */}
+                                <div className="flex items-center gap-3 mb-2 flex-wrap">
+                                  {rest.google_rating && (
+                                    <span className="flex items-center gap-1 text-xs text-amber-500 font-medium">
+                                      <span className="text-amber-400">★</span> {rest.google_rating} <span className="text-gray-400 font-normal">Google</span>
+                                    </span>
+                                  )}
+                                  {selectedEntry.rating ? (
+                                    <span className="flex items-center gap-1 text-xs text-violet-500 font-medium">
+                                      <span className="text-violet-400">★</span> {selectedEntry.rating}/5 <span className="text-gray-400 font-normal">yours</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-gray-300 italic">No personal rating yet</span>
+                                  )}
+                                </div>
+
+                                {/* Hours */}
+                                {hoursLabel && (
+                                  <p className="text-xs text-gray-500 mb-2">🕐 {hoursLabel}</p>
+                                )}
+
+                                {/* Address + Maps link */}
+                                {rest.address && <p className="text-xs text-gray-400 mb-1 line-clamp-2">{rest.address}</p>}
+                                {rest.google_maps_url && (
+                                  <a href={rest.google_maps_url} target="_blank" rel="noopener noreferrer"
+                                    className="text-xs text-blue-600 hover:underline">📍 Open in Maps</a>
+                                )}
+                              </div>
+                            </div>
+                          ) : selectedEntry.restaurant_name ? (
+                            <p className="text-sm text-gray-600 mb-3">🍽 {selectedEntry.restaurant_name}</p>
+                          ) : null}
+
+                          {/* Your rating (when no restaurant card) */}
+                          {!rest && (
+                            selectedEntry.rating ? (
+                              <p className="text-violet-400 mb-2 text-sm">{"★".repeat(selectedEntry.rating)}{"☆".repeat(5 - selectedEntry.rating)}</p>
+                            ) : (
+                              <p className="text-xs text-gray-300 mb-2">No rating yet</p>
+                            )
                           )}
 
-                          {selectedEntry.restaurant_name && (
-                            <p className="text-sm text-gray-600 mb-2">🍽 {selectedEntry.restaurant_name}</p>
-                          )}
-
-                          {selectedEntry.rating ? (
-                            <p className="text-violet-400 mb-2">{"★".repeat(selectedEntry.rating)}{"☆".repeat(5 - selectedEntry.rating)}</p>
-                          ) : (
-                            <p className="text-xs text-gray-300 mb-2">No rating yet</p>
-                          )}
-
+                          {/* Notes */}
                           {selectedEntry.notes && (
                             <p className="text-sm text-gray-600 italic mb-3">&ldquo;{selectedEntry.notes}&rdquo;</p>
                           )}
 
-                          <p className="text-xs text-gray-400 mb-4">
-                            {new Date(selectedEntry.tasted_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
-                          </p>
+                          {/* Date + cuisine */}
+                          <div className="flex items-center gap-2 flex-wrap mb-3">
+                            {selectedEntry.cuisine_type && (
+                              <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">{selectedEntry.cuisine_type}</span>
+                            )}
+                            <span className="text-xs text-gray-400">
+                              {new Date(selectedEntry.tasted_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+                            </span>
+                          </div>
 
                           {/* Trip links */}
                           {selectedEntry.itinerary_ids?.length > 0 && (() => {
                             const trips = itineraries.filter(t => selectedEntry.itinerary_ids.includes(t.id));
                             if (trips.length === 0) return null;
                             return (
-                              <div className="flex flex-wrap gap-1 mb-4">
+                              <div className="flex flex-wrap gap-1 mb-3">
                                 {trips.map(t => (
                                   <button key={t.id} onClick={() => goToPlan(selectedEntry, t.id)}
                                     className="text-xs px-2 py-1 bg-purple-50 border border-primary text-primary rounded-lg hover:bg-purple-100">
@@ -702,7 +802,8 @@ export default function Passport() {
                             </button>
                           </div>
                         </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   ) : (
                     <div className="bg-white rounded-xl shadow p-6 text-center text-gray-400 sticky top-6">

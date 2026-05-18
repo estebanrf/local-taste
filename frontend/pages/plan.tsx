@@ -103,8 +103,10 @@ export default function Plan() {
   const [passportEntries, setPassportEntries] = useState<PassportEntry[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [eatenDateModal, setEatenDateModal] = useState<{ label: string; onConfirm: (date: string) => void } | null>(null);
+  const [eatenDateModal, setEatenDateModal] = useState<{ label: string; onConfirm: (date: string, rating: number, notes: string) => void } | null>(null);
   const [eatenDate, setEatenDate] = useState("");
+  const [eatenRating, setEatenRating] = useState(0);
+  const [eatenNotes, setEatenNotes] = useState("");
 
   // ── Lists state ───────────────────────────────────────────────────────────
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -516,42 +518,16 @@ export default function Plan() {
     }
   };
 
-  const handleMarkDishEaten = (item: ItineraryItem) => {
-    const eatKey = item.dish_id ?? `cat:${item.dish_name}:${item.city_name}`;
-    if (markingEaten.has(eatKey)) return;
-    setEatenDate(new Date().toISOString().slice(0, 10));
-    setEatenDateModal({
-      label: `When did you try "${item.dish_name}"?`,
-      onConfirm: async (tastedAt: string) => {
-        setEatenDateModal(null);
-        setMarkingEaten(prev => new Set(prev).add(eatKey));
-        try {
-          const token = await getToken();
-          const body = item.dish_id
-            ? { dish_id: item.dish_id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }
-            : { dish_name: item.dish_name, city_name: item.city_name, country: item.country, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] };
-          const res = await fetch(`${API_URL}/api/passport`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          if (res.ok) {
-            showToast("success", `"${item.dish_name}" added to your passport!`);
-            await loadPassport();
-            setItems(prev => prev.map(i => i.id === item.id ? { ...i, eaten_count: (i.eaten_count || 0) + 1 } : i));
-          } else showToast("error", "Failed to mark as eaten.");
-        } catch { showToast("error", "Failed to mark as eaten."); }
-        finally { setMarkingEaten(prev => { const n = new Set(prev); n.delete(eatKey); return n; }); }
-      },
-    });
-  };
+
 
   const handleMarkEaten = (restaurant: Restaurant) => {
     if (!selectedItem || markingEaten.has(restaurant.id)) return;
     setEatenDate(new Date().toISOString().slice(0, 10));
+    setEatenRating(0);
+    setEatenNotes("");
     setEatenDateModal({
       label: `When did you visit ${restaurant.name}?`,
-      onConfirm: async (tastedAt: string) => {
+      onConfirm: async (tastedAt: string, rating: number, notes: string) => {
         setEatenDateModal(null);
         setMarkingEaten(prev => new Set(prev).add(restaurant.id));
         try {
@@ -560,8 +536,8 @@ export default function Plan() {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
             body: JSON.stringify(selectedItem.dish_id
-              ? { dish_id: selectedItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }
-              : { dish_name: selectedItem.dish_name, city_name: selectedItem.city_name, country: selectedItem.country, restaurant_id: restaurant.id, tasted_at: tastedAt, itinerary_ids: activeId ? [activeId] : [] }
+              ? { dish_id: selectedItem.dish_id, restaurant_id: restaurant.id, tasted_at: tastedAt, rating: rating || undefined, notes: notes || undefined, itinerary_ids: activeId ? [activeId] : [] }
+              : { dish_name: selectedItem.dish_name, city_name: selectedItem.city_name, country: selectedItem.country, restaurant_id: restaurant.id, tasted_at: tastedAt, rating: rating || undefined, notes: notes || undefined, itinerary_ids: activeId ? [activeId] : [] }
             ),
           });
           if (res.ok) {
@@ -850,13 +826,6 @@ export default function Plan() {
                                                 )}
                                               </div>
                                               <div className="flex-shrink-0 flex flex-col gap-1 items-end">
-                                                {!eaten && (
-                                                  <button
-                                                    onClick={e => { e.stopPropagation(); handleMarkDishEaten(item); }}
-                                                    disabled={markingEaten.has(item.dish_id ?? `cat:${item.dish_name}:${item.city_name}`)}
-                                                    className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors whitespace-nowrap"
-                                                  >{markingEaten.has(item.dish_id ?? `cat:${item.dish_name}:${item.city_name}`) ? "Saving…" : "✓ Eaten"}</button>
-                                                )}
                                                 <button
                                                   onClick={e => { e.stopPropagation(); setConfirmDeleteItemId(item.id); }}
                                                   className="text-xs text-gray-300 hover:text-red-400 transition-colors px-1"
@@ -915,9 +884,16 @@ export default function Plan() {
                                 ) : (
                                   <div className="space-y-2">
                                     {restaurants.length === 0 && foundRestaurants.length === 0 && !rankingRestaurants && (
-                                      <p className="text-xs text-gray-400 text-center py-4">
-                                        No restaurants saved yet. Click &ldquo;Find more&rdquo; to search.
-                                      </p>
+                                      <div className="text-center py-6 px-4">
+                                        <p className="text-2xl mb-2">🍽️</p>
+                                        <p className="text-sm font-medium text-dark mb-1">No restaurants saved yet</p>
+                                        <p className="text-xs text-gray-400 mb-3">Use &ldquo;Find more&rdquo; above to search, or go back to Explore to discover places.</p>
+                                        <Link href="/explore">
+                                          <button className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-purple-700 transition-colors font-medium">
+                                            Explore →
+                                          </button>
+                                        </Link>
+                                      </div>
                                     )}
                                     {restaurants.map(r => {
                                       const eaten = isRestaurantEaten(r.id);
@@ -949,7 +925,7 @@ export default function Plan() {
                                             ) : (
                                               <button onClick={e => { e.stopPropagation(); handleMarkEaten(r); }} disabled={markingEaten.has(r.id)}
                                                 className="text-xs px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium transition-colors">
-                                                {markingEaten.has(r.id) ? "Saving…" : "✓ Already Been"}
+                                                {markingEaten.has(r.id) ? "Saving…" : "🍽 I ate here!"}
                                               </button>
                                             )}
                                             {(r.photo_url || (r.reviews && r.reviews.length > 0)) && (
@@ -1057,7 +1033,8 @@ export default function Plan() {
               <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
                 <h2 className="text-lg font-bold text-dark mb-1">Log to Passport</h2>
                 <p className="text-sm text-gray-500 mb-5">{eatenDateModal.label}</p>
-                <div className="mb-5">
+
+                <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                   <input
                     type="date"
@@ -1067,13 +1044,37 @@ export default function Plan() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Your rating <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map(s => (
+                      <button key={s} type="button" onClick={() => setEatenRating(s === eatenRating ? 0 : s)}
+                        className={`text-2xl transition-colors ${s <= eatenRating ? "text-violet-400" : "text-gray-200 hover:text-violet-200"}`}>
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-5">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <textarea
+                    value={eatenNotes}
+                    onChange={e => setEatenNotes(e.target.value)}
+                    placeholder="How was it? Any highlights or tips…"
+                    rows={2}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                  />
+                </div>
+
                 <div className="flex gap-3">
                   <button
-                    onClick={() => eatenDateModal.onConfirm(eatenDate)}
+                    onClick={() => eatenDateModal.onConfirm(eatenDate, eatenRating, eatenNotes)}
                     disabled={!eatenDate}
                     className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700 disabled:opacity-50 transition-colors"
                   >
-                    ✓ Confirm
+                    ✓ Save to Passport
                   </button>
                   <button
                     onClick={() => setEatenDateModal(null)}
